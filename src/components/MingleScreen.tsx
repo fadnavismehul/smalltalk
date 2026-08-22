@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bot, RefreshCw, CheckCircle2, XCircle, Play } from 'lucide-react';
+import { Bot, RefreshCw, CheckCircle2, XCircle, Play, ShieldAlert } from 'lucide-react';
 import { Profile, TranscriptMessage, MatchDecision } from '../types';
 
 export default function MingleScreen() {
@@ -63,10 +63,26 @@ export default function MingleScreen() {
   const profileA = profiles.find((p) => p.id === profileAId);
   const profileB = profiles.find((p) => p.id === profileBId);
 
+  const isProfileAIneligible = profileA && profileA.open_to_talk === false;
+  const isProfileBIneligible = profileB && profileB.open_to_talk === false;
+  const isPairIneligible = Boolean(isProfileAIneligible || isProfileBIneligible);
+
   const handleStartMingling = async () => {
     if (!profileA || !profileB) return;
     if (profileA.id === profileB.id) {
       setError('Please select two different attendees to mingle.');
+      return;
+    }
+
+    // Step 3 Requirement: Hard gate on open_to_talk before negotiation runs
+    if (profileA.open_to_talk === false || profileB.open_to_talk === false) {
+      const ineligibleNames =
+        profileA.open_to_talk === false && profileB.open_to_talk === false
+          ? `${profileA.name} and ${profileB.name}`
+          : profileA.open_to_talk === false
+          ? profileA.name
+          : profileB.name;
+      setError(`Not eligible for negotiation: ${ineligibleNames} indicated they are not open to introductions today.`);
       return;
     }
 
@@ -83,7 +99,7 @@ export default function MingleScreen() {
         const speaker = turns[i];
         setCurrentTurnSpeaker(speaker);
 
-        // Small pacing delay to feel organic
+        // Small organic pacing delay between turns
         if (i > 0) {
           await new Promise((resolve) => setTimeout(resolve, 800));
         }
@@ -100,7 +116,8 @@ export default function MingleScreen() {
         });
 
         if (!res.ok) {
-          throw new Error('Negotiation turn failed to generate.');
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Negotiation turn failed to generate.');
         }
 
         const data = await res.json();
@@ -117,7 +134,7 @@ export default function MingleScreen() {
 
       setCurrentTurnSpeaker(null);
 
-      // Call negotiate-decide
+      // Call negotiate-decide passing the full 4-turn transcript
       const decideRes = await fetch('/api/negotiate-decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -151,13 +168,6 @@ export default function MingleScreen() {
     setCurrentTurnSpeaker(null);
   };
 
-  const handleQuickPair = (idA: string, idB: string) => {
-    if (isMingling) return;
-    setProfileAId(idA);
-    setProfileBId(idB);
-    handleReset();
-  };
-
   return (
     <div className="w-full max-w-3xl mx-auto space-y-6">
       {/* Control Panel / Attendee Selection */}
@@ -174,6 +184,51 @@ export default function MingleScreen() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              id="test-consent-gate-btn"
+              onClick={async () => {
+                const inactiveProfile = profiles.find((p) => p.open_to_talk === false) || {
+                  id: 'test-inactive-mock',
+                  name: 'Alex Rivera (Opted Out)',
+                  working_on: 'Solo sprint',
+                  interest_tags: ['CUDA'],
+                  looking_for: 'Solo hacking',
+                  open_to_talk: false,
+                };
+                const activeProfile = profiles.find((p) => p.open_to_talk !== false) || profiles[0];
+                
+                console.log('[Consent Gate Test] Triggering test against opted-out profile:', inactiveProfile.name);
+                try {
+                  const res = await fetch('/api/negotiate-turn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      profileA: activeProfile,
+                      profileB: inactiveProfile,
+                      transcript_so_far: [],
+                      speaker: 'A',
+                    }),
+                  });
+                  const data = await res.json();
+                  console.log('[Consent Gate Test] Response status:', res.status, data);
+                  if (res.status === 400 && (data.error === 'not_eligible' || data.error)) {
+                    setError(`[Consent Gate Verified] Server blocked negotiation instantly (HTTP 400): "${data.message || data.error}". Zero Gemini API calls executed.`);
+                  } else {
+                    setError(`[Consent Gate Test] Unexpected response: ${JSON.stringify(data)}`);
+                  }
+                } catch (e: any) {
+                  console.error('[Consent Gate Test Error]:', e);
+                  setError(`[Consent Gate Test] Request error: ${e.message}`);
+                }
+              }}
+              disabled={isMingling || isLoadingProfiles}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
+              title="Test Consent Gate Check"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+              <span>Test Consent Gate</span>
+            </button>
             <button
               type="button"
               onClick={() => fetchProfiles(true)}
@@ -193,17 +248,38 @@ export default function MingleScreen() {
           </div>
         )}
 
+        {isPairIneligible && (
+          <div className="mt-4 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs sm:text-sm flex items-start gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shrink-0" />
+            <div>
+              <span className="font-semibold">Not eligible for negotiation: </span>
+              {isProfileAIneligible && isProfileBIneligible
+                ? `${profileA?.name} and ${profileB?.name} have both opted out of live networking.`
+                : isProfileAIneligible
+                ? `${profileA?.name} has opted out of live networking.`
+                : `${profileB?.name} has opted out of live networking.`}
+            </div>
+          </div>
+        )}
+
         {/* Profile Selectors */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
           {/* Profile A */}
-          <div className="p-3.5 rounded-xl bg-stone-50/80 border border-stone-200 space-y-2">
+          <div className={`p-3.5 rounded-xl border transition space-y-2 ${isProfileAIneligible ? 'bg-amber-50/40 border-amber-200' : 'bg-stone-50/80 border-stone-200'}`}>
             <div className="flex items-center justify-between">
               <label htmlFor="select-profile-a" className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
                 Attendee A
               </label>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
-                Agent A
-              </span>
+              <div className="flex items-center gap-1.5">
+                {isProfileAIneligible && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                    Not open to talk
+                  </span>
+                )}
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
+                  Agent A
+                </span>
+              </div>
             </div>
             <select
               id="select-profile-a"
@@ -213,7 +289,6 @@ export default function MingleScreen() {
                 const newA = e.target.value;
                 setProfileAId(newA);
                 if (newA === profileBId) {
-                  // Switch B to another distinct profile
                   const alt = profiles.find((p) => p.id !== newA);
                   if (alt) setProfileBId(alt.id);
                 }
@@ -223,7 +298,7 @@ export default function MingleScreen() {
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.working_on.slice(0, 32)}...)
+                  {p.name} {p.open_to_talk === false ? '(Not open to talk)' : ''} ({p.working_on.slice(0, 28)}...)
                 </option>
               ))}
             </select>
@@ -235,14 +310,21 @@ export default function MingleScreen() {
           </div>
 
           {/* Profile B */}
-          <div className="p-3.5 rounded-xl bg-stone-50/80 border border-stone-200 space-y-2">
+          <div className={`p-3.5 rounded-xl border transition space-y-2 ${isProfileBIneligible ? 'bg-amber-50/40 border-amber-200' : 'bg-stone-50/80 border-stone-200'}`}>
             <div className="flex items-center justify-between">
               <label htmlFor="select-profile-b" className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
                 Attendee B
               </label>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
-                Agent B
-              </span>
+              <div className="flex items-center gap-1.5">
+                {isProfileBIneligible && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                    Not open to talk
+                  </span>
+                )}
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
+                  Agent B
+                </span>
+              </div>
             </div>
             <select
               id="select-profile-b"
@@ -252,7 +334,6 @@ export default function MingleScreen() {
                 const newB = e.target.value;
                 setProfileBId(newB);
                 if (newB === profileAId) {
-                  // Switch A to another distinct profile
                   const alt = profiles.find((p) => p.id !== newB);
                   if (alt) setProfileAId(alt.id);
                 }
@@ -262,7 +343,7 @@ export default function MingleScreen() {
             >
               {profiles.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.working_on.slice(0, 32)}...)
+                  {p.name} {p.open_to_talk === false ? '(Not open to talk)' : ''} ({p.working_on.slice(0, 28)}...)
                 </option>
               ))}
             </select>
@@ -274,37 +355,12 @@ export default function MingleScreen() {
           </div>
         </div>
 
-        {/* Quick test pair shortcuts */}
-        {profiles.length >= 4 && (
-          <div className="mt-4 pt-3 border-t border-stone-100 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-stone-500 font-medium mr-1">Suggested Pairings:</span>
-            <button
-              type="button"
-              disabled={isMingling}
-              onClick={() => handleQuickPair(profiles[0]?.id, profiles[1]?.id)}
-              className="px-2.5 py-1 text-xs bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-md transition disabled:opacity-50"
-            >
-              High Overlap: {profiles[0]?.name.split(' ')[0]} & {profiles[1]?.name.split(' ')[0]}
-            </button>
-            {profiles.length >= 4 && (
-              <button
-                type="button"
-                disabled={isMingling}
-                onClick={() => handleQuickPair(profiles[2]?.id, profiles[3]?.id)}
-                className="px-2.5 py-1 text-xs bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-md transition disabled:opacity-50"
-              >
-                Domain Match: {profiles[2]?.name.split(' ')[0]} & {profiles[3]?.name.split(' ')[0]}
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Action button */}
         <div className="mt-5 flex items-center gap-3">
           <button
             id="start-mingling-btn"
             type="button"
-            disabled={isMingling || !profileA || !profileB || profileA.id === profileB.id}
+            disabled={isMingling || !profileA || !profileB || profileA.id === profileB.id || isPairIneligible}
             onClick={handleStartMingling}
             className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium text-stone-50 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer shadow-xs"
           >
@@ -313,6 +369,8 @@ export default function MingleScreen() {
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Agents Mingling in Background...</span>
               </>
+            ) : isPairIneligible ? (
+              <span>Attendee Ineligible (Not Open to Introductions)</span>
             ) : (
               <>
                 <Play className="w-4 h-4 fill-current" />
@@ -325,7 +383,7 @@ export default function MingleScreen() {
             <button
               type="button"
               onClick={handleReset}
-              className="px-4 py-3 text-sm font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-xl transition"
+              className="px-4 py-3 text-sm font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-xl transition cursor-pointer"
             >
               Reset
             </button>
@@ -407,36 +465,48 @@ export default function MingleScreen() {
         </section>
       )}
 
-      {/* Match Decision Reveal */}
+      {/* Match Decision Reveal Screen */}
       {decision && (
         <section id="decision-section" className="animate-in fade-in slide-in-from-bottom-3 duration-300">
           {decision.matched ? (
-            <div className="bg-white border-2 border-stone-900 rounded-2xl p-6 sm:p-8 shadow-sm text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200/80 mb-1">
-                <CheckCircle2 className="w-6 h-6 stroke-[2]" />
-              </div>
+            /* True Case: Celebratory Match Payoff Screen */
+            <div className="bg-stone-950 text-stone-50 border border-stone-800 rounded-3xl p-7 sm:p-10 shadow-xl text-center relative overflow-hidden">
+              {/* Subtle top indicator bar */}
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500" />
 
-              <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                  You've been introduced
-                </span>
-                <h3 className="text-2xl font-bold text-stone-900 tracking-tight pt-2">
-                  {profileA?.name} <span className="text-stone-400 font-light">&</span> {profileB?.name}
-                </h3>
-              </div>
+              <div className="space-y-6 max-w-xl mx-auto">
+                <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <CheckCircle2 className="w-7 h-7 stroke-[2]" />
+                </div>
 
-              <p className="text-stone-700 text-base sm:text-lg leading-relaxed max-w-xl mx-auto pt-1 font-normal">
-                "{decision.reason}"
-              </p>
+                <div className="space-y-2">
+                  <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 px-3.5 py-1 rounded-full border border-emerald-700/50">
+                    Match Confirmed • Introduction Created
+                  </span>
+                  
+                  <h3 className="text-3xl sm:text-4xl font-bold tracking-tight text-stone-50 pt-1">
+                    {profileA?.name} <span className="text-emerald-400 font-light">&</span> {profileB?.name}
+                  </h3>
+                </div>
 
-              <div className="pt-4">
-                <p className="text-xs text-stone-500">
-                  Both attendees have matching open willingness and complementary domains.
+                {/* Generated Reason Line - Front and Center */}
+                <div className="bg-stone-900/90 border border-stone-800 rounded-2xl p-5 sm:p-6 text-left space-y-2 shadow-inner">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400 block">
+                    Why you two should connect
+                  </span>
+                  <p className="text-base sm:text-lg text-stone-100 font-medium leading-relaxed">
+                    "{decision.reason}"
+                  </p>
+                </div>
+
+                <p className="text-xs text-stone-400 pt-1">
+                  Match recorded in event database. Go find each other on the floor!
                 </p>
               </div>
             </div>
           ) : (
-            <div className="bg-stone-100/80 border border-stone-200 rounded-2xl p-6 sm:p-8 text-center space-y-3">
+            /* False Case: Calm, Visually Distinct Rejection State */
+            <div className="bg-stone-100/90 border border-stone-200 rounded-2xl p-6 sm:p-8 text-center space-y-3">
               <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-stone-200 text-stone-500 mb-1">
                 <XCircle className="w-5 h-5 stroke-[1.75]" />
               </div>

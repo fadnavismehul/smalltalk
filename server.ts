@@ -44,6 +44,15 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const SEED_PROFILES: CapturedProfile[] = [
   {
+    id: 'seed-mehul',
+    name: 'Mehul',
+    working_on: 'Building a social networking app for live hackathons with autonomous AI agents that negotiate introductions.',
+    interest_tags: ['AI Agents', 'Networking', 'Hackathons', 'Developer Tools'],
+    looking_for: 'Testing agent matching algorithms and connecting with developers building AI agent infra or hackathon tools.',
+    open_to_talk: true,
+    captured_at: new Date('2026-08-21T18:00:00Z').toISOString(),
+  },
+  {
     id: 'seed-1',
     name: 'Maya Chen',
     working_on: 'Building an open-source evaluation benchmark and agent runtime for LLM code generation.',
@@ -114,21 +123,52 @@ const SEED_PROFILES: CapturedProfile[] = [
     looking_for: 'Looking to discuss conflict resolution algorithms and web performance optimization for large graph trees.',
     open_to_talk: true,
     captured_at: new Date('2026-08-21T18:35:00Z').toISOString(),
+  },
+  {
+    id: 'seed-inactive',
+    name: 'Alex Rivera',
+    working_on: 'Head-down focused sprint on GPU kernel optimization, not networking today.',
+    interest_tags: ['CUDA', 'Performance', 'Low Level'],
+    looking_for: 'Solo hacking session.',
+    open_to_talk: false,
+    captured_at: new Date('2026-08-21T18:40:00Z').toISOString(),
   }
 ];
 
 export interface MatchRecord {
-  id: string;
-  profileA_id: string;
-  profileB_id: string;
-  profileA_name: string;
-  profileB_name: string;
+  matchId: string;
+  profileAId: string;
+  profileBId: string;
+  profileAName: string;
+  profileBName: string;
   reason: string;
-  confidence: number;
-  matched_at: string;
+  timestamp: string;
+  confidence?: number;
 }
 
+const MATCHES_FILE = path.join(DATA_DIR, 'matches.json');
 const matchesStore: MatchRecord[] = [];
+
+// Load existing matches
+if (fs.existsSync(MATCHES_FILE)) {
+  try {
+    const raw = fs.readFileSync(MATCHES_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      matchesStore.push(...parsed);
+    }
+  } catch (err) {
+    console.error('Failed reading matches.json:', err);
+  }
+}
+
+function saveMatches() {
+  try {
+    fs.writeFileSync(MATCHES_FILE, JSON.stringify(matchesStore, null, 2));
+  } catch (err) {
+    console.error('Failed saving matches.json:', err);
+  }
+}
 
 // Load existing profiles and merge with seed profiles
 if (fs.existsSync(PROFILES_FILE)) {
@@ -306,6 +346,15 @@ app.post('/api/negotiate-turn', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'profileA, profileB, and speaker are required' });
     }
 
+    // Hard Gate: Skip negotiation if either attendee is not open to talk
+    if (profileA.open_to_talk === false || profileB.open_to_talk === false) {
+      const ineligible = profileA.open_to_talk === false ? profileA.name : profileB.name;
+      return res.status(400).json({
+        error: 'not_eligible',
+        message: `${ineligible} has indicated they are not open to introductions today.`,
+      });
+    }
+
     const currentProfile: CapturedProfile = speaker === 'A' ? profileA : profileB;
     const otherProfile: CapturedProfile = speaker === 'A' ? profileB : profileA;
 
@@ -370,16 +419,32 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'profileA and profileB are required' });
     }
 
+    // Hard Gate: Check in code if either profile's open_to_talk is false
+    if (profileA.open_to_talk === false || profileB.open_to_talk === false) {
+      return res.json({
+        match: false,
+        confidence: 0,
+        reason: 'One or both attendees marked their preferences as not open to introductions today.',
+        matched: false,
+        eligible: false,
+      });
+    }
+
     const ai = getGenAIClient();
     let match = false;
     let confidence = 0.5;
-    let reason = 'No clear overlap found between attendee goals today.';
+    let reason = 'No clear synergy surfaced during the agent exchange.';
 
     const formattedTranscript = Array.isArray(full_transcript) && full_transcript.length > 0
       ? full_transcript
           .map((item: any) => `${item.name || (item.speaker === 'A' ? profileA.name : profileB.name)}'s Agent: ${item.text || item.message}`)
           .join('\n')
       : '(No exchange recorded)';
+
+    // Confirm the full 4-turn transcript is logged
+    console.log(`[negotiate-decide] Evaluating match for ${profileA.name} & ${profileB.name}`);
+    console.log(`[negotiate-decide] Full transcript turns count: ${Array.isArray(full_transcript) ? full_transcript.length : 0}`);
+    console.log(`[negotiate-decide] Full transcript passed:\n${formattedTranscript}`);
 
     if (ai) {
       const prompt = PROMPTS.negotiateDecide.buildUserPrompt({
@@ -399,7 +464,7 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
             properties: {
               match: {
                 type: Type.BOOLEAN,
-                description: 'True if there is genuine shared ground or complementary synergy for an introduction',
+                description: 'True if there is a genuine, specific reason these two people would want to talk based on what surfaced in the exchange',
               },
               confidence: {
                 type: Type.NUMBER,
@@ -407,7 +472,7 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
               },
               reason: {
                 type: Type.STRING,
-                description: 'A concise 1-2 sentence introduction rationale explaining why they should connect',
+                description: 'A concise 1-2 sentence introduction rationale grounded in what surfaced during the live exchange',
               },
             },
             required: ['match', 'confidence', 'reason'],
@@ -421,6 +486,7 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
         if (typeof parsed.match === 'boolean') match = parsed.match;
         if (typeof parsed.confidence === 'number') confidence = parsed.confidence;
         if (typeof parsed.reason === 'string' && parsed.reason.trim()) reason = parsed.reason.trim();
+        console.log('[negotiate-decide] Model decision result:', { match, confidence, reason });
       } catch (parseErr) {
         console.error('Failed to parse Gemini decision response:', parseErr, responseText);
       }
@@ -433,35 +499,40 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
       if (common.length > 0) {
         match = true;
         confidence = 0.85;
-        reason = `Both share strong interest in ${common.join(' and ')}, with complementary projects in ${profileA.working_on.split(' ')[0]} and ${profileB.working_on.split(' ')[0]}.`;
+        reason = `Both surfaced complementary hackathon goals around ${common.join(' and ')}.`;
       } else {
         match = false;
         confidence = 0.4;
-        reason = 'Distinct domain focuses with limited immediate overlap today.';
+        reason = 'Distinct focus areas with limited immediate synergy during the exchange.';
       }
     }
 
-    const isMatchSuccessful = match === true && confidence >= 0.6;
+    const isMatchSuccessful = match === true;
+    let createdMatchRecord: MatchRecord | null = null;
 
     if (isMatchSuccessful) {
-      const matchRecord: MatchRecord = {
-        id: crypto.randomUUID(),
-        profileA_id: profileA.id,
-        profileB_id: profileB.id,
-        profileA_name: profileA.name,
-        profileB_name: profileB.name,
+      createdMatchRecord = {
+        matchId: crypto.randomUUID(),
+        profileAId: profileA.id,
+        profileBId: profileB.id,
+        profileAName: profileA.name,
+        profileBName: profileB.name,
         reason,
+        timestamp: new Date().toISOString(),
         confidence,
-        matched_at: new Date().toISOString(),
       };
-      matchesStore.push(matchRecord);
+      matchesStore.push(createdMatchRecord);
+      saveMatches();
+      console.log('[negotiate-decide] Match record successfully persisted:', createdMatchRecord.matchId);
     }
 
     return res.json({
-      match,
+      match: isMatchSuccessful,
       confidence,
       reason,
       matched: isMatchSuccessful,
+      eligible: true,
+      matchRecord: createdMatchRecord,
     });
   } catch (error: any) {
     console.error('Negotiate decide error:', error);

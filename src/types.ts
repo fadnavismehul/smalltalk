@@ -15,9 +15,23 @@ export interface TranscriptMessage {
   timestamp: number;
 }
 
+export interface MatchRecord {
+  matchId: string;
+  profileAId: string;
+  profileBId: string;
+  profileAName: string;
+  profileBName: string;
+  reason: string;
+  timestamp: string;
+  confidence?: number;
+}
+
 export interface MatchDecision {
   match: boolean;
   confidence: number;
   reason: string;
   matched: boolean;
+  eligible?: boolean;
+  matchRecord?: MatchRecord;
 }
+
