@@ -26,6 +26,7 @@ export interface CapturedProfile {
   interest_tags: string[];
   looking_for: string;
   open_to_talk: boolean;
+  agent_tone?: string;
   captured_at: string;
 }
 
@@ -50,6 +51,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['AI Agents', 'Networking', 'Hackathons', 'Developer Tools'],
     looking_for: 'Testing agent matching algorithms and connecting with developers building AI agent infra or hackathon tools.',
     open_to_talk: true,
+    agent_tone: 'cool',
     captured_at: new Date('2026-08-21T18:00:00Z').toISOString(),
   },
   {
@@ -59,6 +61,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['AI Agents', 'Developer Tools', 'Open Source', 'LLM Eval'],
     looking_for: 'Looking to meet AI engineers experimenting with autonomous coding workflows and potential technical co-founders.',
     open_to_talk: true,
+    agent_tone: 'curious',
     captured_at: new Date('2026-08-21T18:00:00Z').toISOString(),
   },
   {
@@ -68,6 +71,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Compilers', 'Sandboxing', 'Developer Tools', 'Security'],
     looking_for: 'Looking to partner with agent framework builders who need low-latency, isolated execution environments.',
     open_to_talk: true,
+    agent_tone: 'direct',
     captured_at: new Date('2026-08-21T18:05:00Z').toISOString(),
   },
   {
@@ -77,6 +81,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Climate Tech', 'Hardware', 'IoT Telemetry', 'Agriculture'],
     looking_for: 'Looking to meet embedded systems firmware developers and agritech domain advisors.',
     open_to_talk: true,
+    agent_tone: 'warm',
     captured_at: new Date('2026-08-21T18:10:00Z').toISOString(),
   },
   {
@@ -86,6 +91,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Supply Chain', 'B2B SaaS', 'Healthcare Logistics', 'Operations'],
     looking_for: 'Looking to connect with enterprise sales leaders and angel investors with supply chain backgrounds.',
     open_to_talk: true,
+    agent_tone: 'direct',
     captured_at: new Date('2026-08-21T18:15:00Z').toISOString(),
   },
   {
@@ -95,6 +101,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Generative Design', 'UI/UX', 'Design Systems', 'Frontend AI'],
     looking_for: 'Looking for frontend engineers passionate about generative design systems and interactive canvas tools.',
     open_to_talk: true,
+    agent_tone: 'quirky',
     captured_at: new Date('2026-08-21T18:20:00Z').toISOString(),
   },
   {
@@ -104,6 +111,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Audio DSP', 'Game Audio', 'Creative Tech', 'Music AI'],
     looking_for: 'Looking to chat with indie game creators, sound designers, and interactive media artists.',
     open_to_talk: true,
+    agent_tone: 'quirky',
     captured_at: new Date('2026-08-21T18:25:00Z').toISOString(),
   },
   {
@@ -113,6 +121,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['Zero Knowledge', 'Cryptography', 'Fintech', 'Distributed Systems'],
     looking_for: 'Looking to exchange ideas with applied cryptographers and distributed systems architects.',
     open_to_talk: true,
+    agent_tone: 'direct',
     captured_at: new Date('2026-08-21T18:30:00Z').toISOString(),
   },
   {
@@ -122,6 +131,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['CRDTs', 'Local-First', 'Canvas UI', 'Collaboration'],
     looking_for: 'Looking to discuss conflict resolution algorithms and web performance optimization for large graph trees.',
     open_to_talk: true,
+    agent_tone: 'cool',
     captured_at: new Date('2026-08-21T18:35:00Z').toISOString(),
   },
   {
@@ -131,6 +141,7 @@ const SEED_PROFILES: CapturedProfile[] = [
     interest_tags: ['CUDA', 'Performance', 'Low Level'],
     looking_for: 'Solo hacking session.',
     open_to_talk: false,
+    agent_tone: 'direct',
     captured_at: new Date('2026-08-21T18:40:00Z').toISOString(),
   }
 ];
@@ -215,13 +226,61 @@ function getGenAIClient(): GoogleGenAI | null {
   });
 }
 
+app.post('/api/generate-name', async (req: Request, res: Response) => {
+  try {
+    const { working_on, looking_for, tone } = req.body;
+    const ai = getGenAIClient();
+
+    if (ai && (working_on || looking_for)) {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: `Based on what this person is working on and looking for, generate a catchy, fun, memorable 2-word name (like "Vector Voyager", "Prompt Pioneer", "Neural Nomad", "Code Crafter", "Agent Alex", "Pixel Pilot", "Acoustic Artisan", "Kernel Kai").
+Working on: ${working_on || 'building AI projects'}
+Looking for: ${looking_for || 'meeting tech builders'}
+Tone: ${tone || 'cool'}
+
+Return ONLY JSON matching the schema.`,
+        config: {
+          systemInstruction: 'You generate catchy 2-part attendee names or aliases (exactly 2 words) inspired by what someone is building.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: {
+                type: Type.STRING,
+                description: 'A 2-part name (2 words, e.g. "Neural Nomad", "Vector Voyager", "Pixel Pilot")',
+              },
+            },
+            required: ['name'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      if (parsed.name && typeof parsed.name === 'string') {
+        return res.status(200).json({ name: parsed.name.trim() });
+      }
+    }
+
+    // Fallback generator if no AI client or empty response
+    const prefixes = ['Vector', 'Prompt', 'Neural', 'Pixel', 'Kernel', 'Acoustic', 'Quantum', 'Cloud', 'Byte', 'Logic'];
+    const suffixes = ['Voyager', 'Pioneer', 'Nomad', 'Crafter', 'Pilot', 'Builder', 'Architect', 'Scout', 'Hacker', 'Weaver'];
+    const randomPrefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const randomSuffix = suffixes[Math.floor(Math.random() * suffixes.length)];
+    return res.status(200).json({ name: `${randomPrefix} ${randomSuffix}` });
+  } catch (error: any) {
+    console.error('Generate name error:', error);
+    return res.status(200).json({ name: 'Pixel Pioneer' });
+  }
+});
+
 app.post('/api/capture', async (req: Request, res: Response) => {
   try {
-    const { name, working_on_raw, looking_for_raw, open_to_talk } = req.body;
+    const { name: rawName, working_on_raw, looking_for_raw, open_to_talk, agent_tone } = req.body;
 
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ error: 'Name is required' });
-    }
+    const name = (rawName && typeof rawName === 'string' && rawName.trim()) 
+      ? rawName.trim() 
+      : 'You';
 
     const ai = getGenAIClient();
     let working_on = (working_on_raw || '').trim() || 'Working on various projects';
@@ -285,22 +344,59 @@ app.post('/api/capture', async (req: Request, res: Response) => {
       interest_tags,
       looking_for,
       open_to_talk: typeof open_to_talk === 'boolean' ? open_to_talk : true,
+      agent_tone: agent_tone || 'cool',
       captured_at: new Date().toISOString(),
     };
 
     profilesStore.push(profile);
     saveProfiles();
 
-    // Plain confirmation only - do not display extracted tags or profile back to user
+    // Return the created profile object for seamless client state sync
     return res.status(200).json({
       success: true,
       id: profile.id,
+      profile,
     });
   } catch (error: any) {
     console.error('Capture profile error:', error);
     return res.status(500).json({
       error: error?.message || 'Failed to capture preferences',
     });
+  }
+});
+
+// Update an existing profile
+app.put('/api/profiles/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, working_on, looking_for, interest_tags, open_to_talk, agent_tone } = req.body;
+
+    const existingIndex = profilesStore.findIndex((p) => p.id === id);
+    if (existingIndex === -1) {
+      return res.status(404).json({ error: 'Profile not found' });
+    }
+
+    const current = profilesStore[existingIndex];
+    const updated: CapturedProfile = {
+      ...current,
+      name: typeof name === 'string' && name.trim() ? name.trim() : current.name,
+      working_on: typeof working_on === 'string' ? working_on.trim() : current.working_on,
+      looking_for: typeof looking_for === 'string' ? looking_for.trim() : current.looking_for,
+      interest_tags: Array.isArray(interest_tags) ? interest_tags : current.interest_tags,
+      open_to_talk: typeof open_to_talk === 'boolean' ? open_to_talk : current.open_to_talk,
+      agent_tone: agent_tone || current.agent_tone || 'cool',
+    };
+
+    profilesStore[existingIndex] = updated;
+    saveProfiles();
+
+    return res.json({
+      success: true,
+      profile: updated,
+    });
+  } catch (error: any) {
+    console.error('Update profile error:', error);
+    return res.status(500).json({ error: error?.message || 'Failed to update profile' });
   }
 });
 
@@ -378,7 +474,12 @@ app.post('/api/negotiate-turn', async (req: Request, res: Response) => {
           .join('\n')
       : '(Conversation just started)';
 
-    const systemInstruction = PROMPTS.negotiateTurn.getSystemInstruction(speaker, currentProfile.name, otherProfile.name);
+    const systemInstruction = PROMPTS.negotiateTurn.getSystemInstruction(
+      speaker,
+      currentProfile.name,
+      otherProfile.name,
+      currentProfile.agent_tone
+    );
     const prompt = PROMPTS.negotiateTurn.buildUserPrompt({
       speaker,
       currentProfile,

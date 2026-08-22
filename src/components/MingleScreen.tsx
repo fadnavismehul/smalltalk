@@ -1,115 +1,172 @@
-import { useState, useEffect, useRef } from 'react';
-import { Bot, RefreshCw, CheckCircle2, XCircle, Play, ShieldAlert } from 'lucide-react';
-import { Profile, TranscriptMessage, MatchDecision } from '../types';
+import React, { useEffect, useRef, useMemo } from 'react';
+import {
+  Bot,
+  Play,
+  Pause,
+  RotateCcw,
+  XCircle,
+  ShieldAlert,
+  Sparkles,
+  ChevronRight,
+  ArrowRight,
+  ArrowLeft,
+  UserPlus,
+  Zap,
+  MessageSquare,
+} from 'lucide-react';
+import { Profile, TranscriptMessage, MatchDecision, AgentChatSession } from '../types';
 
-export default function MingleScreen() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [profileAId, setProfileAId] = useState<string>('');
-  const [profileBId, setProfileBId] = useState<string>('');
-  const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
+interface MingleScreenProps {
+  currentProfile?: Profile | null;
+  onMatchFound?: () => void;
+  onGoToAgentSetup?: () => void;
+  initialProfileBId?: string;
+  initialProfileAId?: string;
+  chatSessions: AgentChatSession[];
+  setChatSessions: React.Dispatch<React.SetStateAction<AgentChatSession[]>>;
+  numChatsToRun: number;
+  setNumChatsToRun: React.Dispatch<React.SetStateAction<number>>;
+  isRunning: boolean;
+  setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
+  selectedSessionId: string | null;
+  setSelectedSessionId: React.Dispatch<React.SetStateAction<string | null>>;
+}
 
-  // Mingle state
-  const [isMingling, setIsMingling] = useState(false);
-  const [currentTurnSpeaker, setCurrentTurnSpeaker] = useState<'A' | 'B' | null>(null);
-  const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
-  const [decision, setDecision] = useState<MatchDecision | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const TONE_EMOJIS: Record<string, string> = {
+  cool: '🕶️',
+  warm: '🤝',
+  quirky: '✨',
+  direct: '🎯',
+  curious: '🔍',
+};
 
-  const transcriptBottomRef = useRef<HTMLDivElement>(null);
+export default function MingleScreen({
+  currentProfile,
+  onMatchFound,
+  onGoToAgentSetup,
+  initialProfileBId,
+  chatSessions,
+  setChatSessions,
+  numChatsToRun,
+  setNumChatsToRun,
+  isRunning,
+  setIsRunning,
+  selectedSessionId,
+  setSelectedSessionId,
+}: MingleScreenProps) {
+  const [profiles, setProfiles] = React.useState<Profile[]>([]);
+  const [isLoadingProfiles, setIsLoadingProfiles] = React.useState(true);
+  
+  const isRunningRef = useRef<boolean>(isRunning);
+  isRunningRef.current = isRunning;
 
-  const fetchProfiles = async (forceSeed = false) => {
+  // Load profiles from backend
+  const fetchProfiles = async () => {
     try {
       setIsLoadingProfiles(true);
-      setError(null);
-      
-      const endpoint = forceSeed ? '/api/profiles/seed' : '/api/profiles';
-      const method = forceSeed ? 'POST' : 'GET';
-      
-      const res = await fetch(endpoint, { method });
+      const res = await fetch('/api/profiles');
       const data = await res.json();
       if (data.profiles && Array.isArray(data.profiles)) {
         setProfiles(data.profiles);
-        if (data.profiles.length >= 2) {
-          // Set to first two distinct profiles if current selection is empty or same
-          setProfileAId((prevA) => {
-            const exists = data.profiles.some((p: Profile) => p.id === prevA);
-            return exists && prevA ? prevA : data.profiles[0].id;
-          });
-          setProfileBId((prevB) => {
-            const exists = data.profiles.some((p: Profile) => p.id === prevB);
-            if (exists && prevB && prevB !== data.profiles[0].id) {
-              return prevB;
-            }
-            return data.profiles[1].id;
-          });
-        }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to load profiles:', err);
-      setError('Could not load attendees. Please click "Refresh Pool" to retry.');
     } finally {
       setIsLoadingProfiles(false);
     }
   };
 
   useEffect(() => {
-    fetchProfiles(true); // Seed and fetch on mount
+    fetchProfiles();
   }, []);
 
+  // Use only the user's explicitly configured profile (do not talk as a random person)
+  const activeMyProfile: Profile | null = currentProfile || null;
+
+  // Available candidate attendees in the room (strictly excluding oneself)
+  const eligibleCandidates = useMemo(() => {
+    if (!activeMyProfile) return [];
+    return profiles.filter((p) => p.id !== activeMyProfile.id);
+  }, [profiles, activeMyProfile]);
+
+  // Adjust default count based on available candidates
   useEffect(() => {
-    transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcript, currentTurnSpeaker, decision]);
+    if (eligibleCandidates.length > 0 && numChatsToRun > eligibleCandidates.length) {
+      setNumChatsToRun(eligibleCandidates.length);
+    }
+  }, [eligibleCandidates.length, numChatsToRun, setNumChatsToRun]);
 
-  const profileA = profiles.find((p) => p.id === profileAId);
-  const profileB = profiles.find((p) => p.id === profileBId);
+  // Auto-trigger single attendee if redirected from Room directory with initialProfileBId
+  useEffect(() => {
+    if (initialProfileBId && activeMyProfile && profiles.length > 0) {
+      const target = profiles.find((p) => p.id === initialProfileBId);
+      if (target && target.id !== activeMyProfile.id && !chatSessions.some((s) => s.targetProfile.id === target.id)) {
+        const singleSession: AgentChatSession = {
+          id: `session-${Date.now()}-${target.id}`,
+          targetProfile: target,
+          myProfile: activeMyProfile,
+          status: 'queued',
+          currentTurn: 0,
+          transcript: [],
+        };
+        setChatSessions((prev) => [singleSession, ...prev]);
+        setSelectedSessionId(singleSession.id);
+        runSessionsQueue([singleSession], activeMyProfile);
+      }
+    }
+  }, [initialProfileBId, activeMyProfile, profiles]);
 
-  const isProfileAIneligible = profileA && profileA.open_to_talk === false;
-  const isProfileBIneligible = profileB && profileB.open_to_talk === false;
-  const isPairIneligible = Boolean(isProfileAIneligible || isProfileBIneligible);
+  // Execute a single chat session between My Agent and Target Agent
+  const executeChat = async (
+    session: AgentChatSession,
+    myProfile: Profile,
+    updateSession: (id: string, updater: (s: AgentChatSession) => AgentChatSession) => void
+  ) => {
+    const target = session.targetProfile;
 
-  const handleStartMingling = async () => {
-    if (!profileA || !profileB) return;
-    if (profileA.id === profileB.id) {
-      setError('Please select two different attendees to mingle.');
+    // Check consent gate
+    if (myProfile.open_to_talk === false || target.open_to_talk === false) {
+      updateSession(session.id, (s) => ({
+        ...s,
+        status: 'ineligible',
+        error: `${target.name} has opted out of introductions.`,
+      }));
       return;
     }
 
-    // Step 3 Requirement: Hard gate on open_to_talk before negotiation runs
-    if (profileA.open_to_talk === false || profileB.open_to_talk === false) {
-      const ineligibleNames =
-        profileA.open_to_talk === false && profileB.open_to_talk === false
-          ? `${profileA.name} and ${profileB.name}`
-          : profileA.open_to_talk === false
-          ? profileA.name
-          : profileB.name;
-      setError(`Not eligible for negotiation: ${ineligibleNames} indicated they are not open to introductions today.`);
-      return;
-    }
-
-    setIsMingling(true);
-    setError(null);
-    setTranscript([]);
-    setDecision(null);
+    updateSession(session.id, (s) => ({
+      ...s,
+      status: 'talking',
+      startedAt: Date.now(),
+      currentTurn: 0,
+    }));
 
     const currentTranscript: TranscriptMessage[] = [];
-    const turns: Array<'A' | 'B'> = ['A', 'B', 'A', 'B']; // Cap negotiation at 4 turns max
+    const turns: Array<'A' | 'B'> = ['A', 'B', 'A', 'B'];
 
     try {
       for (let i = 0; i < turns.length; i++) {
-        const speaker = turns[i];
-        setCurrentTurnSpeaker(speaker);
+        if (!isRunningRef.current) {
+          break;
+        }
 
-        // Small organic pacing delay between turns
+        const speaker = turns[i];
+        updateSession(session.id, (s) => ({
+          ...s,
+          currentTurn: i + 1,
+          currentSpeaker: speaker,
+        }));
+
         if (i > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+          await new Promise((resolve) => setTimeout(resolve, 600));
         }
 
         const res = await fetch('/api/negotiate-turn', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            profileA,
-            profileB,
+            profileA: myProfile,
+            profileB: target,
             transcript_so_far: currentTranscript,
             speaker,
           }),
@@ -117,410 +174,650 @@ export default function MingleScreen() {
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || 'Negotiation turn failed to generate.');
+          throw new Error(errData.message || 'Turn exchange failed.');
         }
 
         const data = await res.json();
         const newMessage: TranscriptMessage = {
           speaker,
-          name: speaker === 'A' ? profileA.name : profileB.name,
-          text: data.message || 'Exploring common ground...',
+          name: speaker === 'A' ? myProfile.name : target.name,
+          text: data.message || 'Discussing common goals...',
           timestamp: Date.now(),
         };
 
         currentTranscript.push(newMessage);
-        setTranscript([...currentTranscript]);
+        updateSession(session.id, (s) => ({
+          ...s,
+          transcript: [...currentTranscript],
+        }));
       }
 
-      setCurrentTurnSpeaker(null);
+      if (!isRunningRef.current) return;
 
-      // Call negotiate-decide passing the full 4-turn transcript
+      // Evaluate match
       const decideRes = await fetch('/api/negotiate-decide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profileA,
-          profileB,
+          profileA: myProfile,
+          profileB: target,
           full_transcript: currentTranscript,
         }),
       });
 
       if (!decideRes.ok) {
-        throw new Error('Failed to evaluate match decision.');
+        throw new Error('Failed to evaluate match.');
       }
 
-      const decideData: MatchDecision = await decideRes.json();
-      setDecision(decideData);
+      const decision: MatchDecision = await decideRes.json();
+
+      updateSession(session.id, (s) => ({
+        ...s,
+        status: 'completed',
+        decision,
+        completedAt: Date.now(),
+        currentSpeaker: undefined,
+      }));
+
+      if (decision.matched) {
+        if (onMatchFound) onMatchFound();
+      }
     } catch (err: any) {
-      console.error('Mingling error:', err);
-      setError(err?.message || 'Error occurred during agent negotiation.');
-    } finally {
-      setIsMingling(false);
-      setCurrentTurnSpeaker(null);
+      console.error('Chat execution failed:', err);
+      updateSession(session.id, (s) => ({
+        ...s,
+        status: 'failed',
+        error: err?.message || 'Chat interrupted.',
+      }));
     }
   };
 
-  const handleReset = () => {
-    setTranscript([]);
-    setDecision(null);
-    setError(null);
-    setIsMingling(false);
-    setCurrentTurnSpeaker(null);
+  // Run a queue of chat sessions sequentially
+  const runSessionsQueue = async (sessions: AgentChatSession[], myProfile: Profile) => {
+    setIsRunning(true);
+    isRunningRef.current = true;
+
+    const updateSession = (id: string, updater: (s: AgentChatSession) => AgentChatSession) => {
+      setChatSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
+    };
+
+    for (const session of sessions) {
+      if (!isRunningRef.current) break;
+      await executeChat(session, myProfile, updateSession);
+      if (isRunningRef.current) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+
+    setIsRunning(false);
+    isRunningRef.current = false;
   };
 
-  return (
-    <div className="w-full max-w-3xl mx-auto space-y-6">
-      {/* Control Panel / Attendee Selection */}
-      <section className="bg-white border border-stone-200/90 rounded-2xl p-5 sm:p-6 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100">
-          <div>
-            <h2 className="text-lg font-semibold text-stone-900 tracking-tight flex items-center gap-2">
-              <Bot className="w-5 h-5 text-stone-700 stroke-[1.75]" />
-              <span>Live Agent Mingle</span>
+  // Handle "Go and Talk" or "Run New Round" button click
+  const handleStartMingling = () => {
+    if (!activeMyProfile) return;
+    if (eligibleCandidates.length === 0) return;
+
+    // Pick candidates for this round (excluding self)
+    const openCandidates = [...eligibleCandidates].sort(() => 0.5 - Math.random());
+    const selected = openCandidates.slice(0, Math.min(numChatsToRun, openCandidates.length));
+
+    const newSessions: AgentChatSession[] = selected.map((target) => ({
+      id: `session-${Date.now()}-${target.id}`,
+      targetProfile: target,
+      myProfile: activeMyProfile,
+      status: 'queued',
+      currentTurn: 0,
+      transcript: [],
+    }));
+
+    setChatSessions(newSessions);
+    runSessionsQueue(newSessions, activeMyProfile);
+  };
+
+  const handleStopMingling = () => {
+    setIsRunning(false);
+    isRunningRef.current = false;
+  };
+
+  // Filter out any stale sessions where target is oneself
+  const cleanChatSessions = useMemo(() => {
+    if (!activeMyProfile) return chatSessions;
+    return chatSessions.filter((s) => s.targetProfile.id !== activeMyProfile.id);
+  }, [chatSessions, activeMyProfile]);
+
+  // Sort chat sessions so that MATCHES shift directly to the top!
+  const sortedSessions = useMemo(() => {
+    return [...cleanChatSessions].sort((a, b) => {
+      const aIsMatch = a.status === 'completed' && a.decision?.matched === true;
+      const bIsMatch = b.status === 'completed' && b.decision?.matched === true;
+
+      // 1. Confirmed matches always at top
+      if (aIsMatch && !bIsMatch) return -1;
+      if (!aIsMatch && bIsMatch) return 1;
+
+      // 2. Currently talking comes next
+      if (a.status === 'talking' && b.status !== 'talking') return -1;
+      if (a.status !== 'talking' && b.status === 'talking') return 1;
+
+      // 3. Queued comes next
+      if (a.status === 'queued' && b.status !== 'queued') return -1;
+      if (a.status !== 'queued' && b.status === 'queued') return 1;
+
+      return 0;
+    });
+  }, [cleanChatSessions]);
+
+  const activeSelectedSession = useMemo(() => {
+    if (!selectedSessionId) return null;
+    return cleanChatSessions.find((s) => s.id === selectedSessionId) || null;
+  }, [selectedSessionId, cleanChatSessions]);
+
+  const matchesFoundCount = useMemo(() => {
+    return cleanChatSessions.filter((s) => s.status === 'completed' && s.decision?.matched === true).length;
+  }, [cleanChatSessions]);
+
+  const completedCount = useMemo(() => {
+    return cleanChatSessions.filter((s) => s.status === 'completed').length;
+  }, [cleanChatSessions]);
+
+  // ==========================================
+  // GATE: NO AGENT PROFILE SET UP YET
+  // ==========================================
+  if (!activeMyProfile) {
+    return (
+      <div className="w-full max-w-2xl mx-auto space-y-4 animate-in fade-in duration-200">
+        <section className="bg-white border border-stone-200/80 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-stone-100 text-stone-800 flex items-center justify-center mx-auto shadow-xs">
+            <Bot className="w-7 h-7 text-stone-900" />
+          </div>
+
+          <div className="space-y-2 max-w-md mx-auto">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900">
+              Set up your agent first
             </h2>
-            <p className="text-xs sm:text-sm text-stone-500 mt-0.5">
-              Simulate 1-on-1 agent negotiation to evaluate attendee synergy.
+            <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+              Before entering Live Mingle, configure your attendee profile so your agent knows what you're working on and who you're looking to meet.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="pt-2">
             <button
               type="button"
-              id="test-consent-gate-btn"
-              onClick={async () => {
-                const inactiveProfile = profiles.find((p) => p.open_to_talk === false) || {
-                  id: 'test-inactive-mock',
-                  name: 'Alex Rivera (Opted Out)',
-                  working_on: 'Solo sprint',
-                  interest_tags: ['CUDA'],
-                  looking_for: 'Solo hacking',
-                  open_to_talk: false,
-                };
-                const activeProfile = profiles.find((p) => p.open_to_talk !== false) || profiles[0];
-                
-                console.log('[Consent Gate Test] Triggering test against opted-out profile:', inactiveProfile.name);
-                try {
-                  const res = await fetch('/api/negotiate-turn', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      profileA: activeProfile,
-                      profileB: inactiveProfile,
-                      transcript_so_far: [],
-                      speaker: 'A',
-                    }),
-                  });
-                  const data = await res.json();
-                  console.log('[Consent Gate Test] Response status:', res.status, data);
-                  if (res.status === 400 && (data.error === 'not_eligible' || data.error)) {
-                    setError(`[Consent Gate Verified] Server blocked negotiation instantly (HTTP 400): "${data.message || data.error}". Zero Gemini API calls executed.`);
-                  } else {
-                    setError(`[Consent Gate Test] Unexpected response: ${JSON.stringify(data)}`);
-                  }
-                } catch (e: any) {
-                  console.error('[Consent Gate Test Error]:', e);
-                  setError(`[Consent Gate Test] Request error: ${e.message}`);
-                }
-              }}
-              disabled={isMingling || isLoadingProfiles}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
-              title="Test Consent Gate Check"
+              onClick={onGoToAgentSetup}
+              className="inline-flex items-center justify-center gap-2 py-3.5 px-6 text-sm font-semibold text-stone-50 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 rounded-xl transition cursor-pointer shadow-xs"
             >
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-              <span>Test Consent Gate</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => fetchProfiles(true)}
-              disabled={isMingling || isLoadingProfiles}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200/70 rounded-lg transition disabled:opacity-50 cursor-pointer"
-              title="Reload attendee pool"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingProfiles ? 'animate-spin' : ''}`} />
-              <span>Refresh Pool</span>
+              <UserPlus className="w-4 h-4" />
+              <span>Go to My Agent</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </section>
+      </div>
+    );
+  }
 
-        {error && (
-          <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-            {error}
-          </div>
-        )}
+  // ==========================================
+  // IN-PAGE TRANSCRIPT VIEW (Replaces list on this page)
+  // ==========================================
+  if (activeSelectedSession) {
+    const target = activeSelectedSession.targetProfile;
+    const isMatch = activeSelectedSession.status === 'completed' && activeSelectedSession.decision?.matched === true;
+    const isNonMatch = activeSelectedSession.status === 'completed' && activeSelectedSession.decision?.matched === false;
+    const isTalking = activeSelectedSession.status === 'talking';
 
-        {isPairIneligible && (
-          <div className="mt-4 p-3 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs sm:text-sm flex items-start gap-2.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shrink-0" />
-            <div>
-              <span className="font-semibold">Not eligible for negotiation: </span>
-              {isProfileAIneligible && isProfileBIneligible
-                ? `${profileA?.name} and ${profileB?.name} have both opted out of live networking.`
-                : isProfileAIneligible
-                ? `${profileA?.name} has opted out of live networking.`
-                : `${profileB?.name} has opted out of live networking.`}
-            </div>
-          </div>
-        )}
-
-        {/* Profile Selectors */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
-          {/* Profile A */}
-          <div className={`p-3.5 rounded-xl border transition space-y-2 ${isProfileAIneligible ? 'bg-amber-50/40 border-amber-200' : 'bg-stone-50/80 border-stone-200'}`}>
-            <div className="flex items-center justify-between">
-              <label htmlFor="select-profile-a" className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
-                Attendee A
-              </label>
-              <div className="flex items-center gap-1.5">
-                {isProfileAIneligible && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
-                    Not open to talk
-                  </span>
-                )}
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
-                  Agent A
-                </span>
-              </div>
-            </div>
-            <select
-              id="select-profile-a"
-              value={profileAId}
-              disabled={isMingling || isLoadingProfiles}
-              onChange={(e) => {
-                const newA = e.target.value;
-                setProfileAId(newA);
-                if (newA === profileBId) {
-                  const alt = profiles.find((p) => p.id !== newA);
-                  if (alt) setProfileBId(alt.id);
-                }
-                handleReset();
-              }}
-              className="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:bg-stone-100 cursor-pointer"
-            >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.open_to_talk === false ? '(Not open to talk)' : ''} ({p.working_on.slice(0, 28)}...)
-                </option>
-              ))}
-            </select>
-            {profileA && (
-              <p className="text-xs text-stone-600 leading-relaxed pt-1 line-clamp-2">
-                <span className="font-medium text-stone-800">{profileA.name}:</span> {profileA.working_on}
-              </p>
-            )}
-          </div>
-
-          {/* Profile B */}
-          <div className={`p-3.5 rounded-xl border transition space-y-2 ${isProfileBIneligible ? 'bg-amber-50/40 border-amber-200' : 'bg-stone-50/80 border-stone-200'}`}>
-            <div className="flex items-center justify-between">
-              <label htmlFor="select-profile-b" className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
-                Attendee B
-              </label>
-              <div className="flex items-center gap-1.5">
-                {isProfileBIneligible && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
-                    Not open to talk
-                  </span>
-                )}
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-200 text-stone-700 font-medium">
-                  Agent B
-                </span>
-              </div>
-            </div>
-            <select
-              id="select-profile-b"
-              value={profileBId}
-              disabled={isMingling || isLoadingProfiles}
-              onChange={(e) => {
-                const newB = e.target.value;
-                setProfileBId(newB);
-                if (newB === profileAId) {
-                  const alt = profiles.find((p) => p.id !== newB);
-                  if (alt) setProfileAId(alt.id);
-                }
-                handleReset();
-              }}
-              className="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900 disabled:bg-stone-100 cursor-pointer"
-            >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.open_to_talk === false ? '(Not open to talk)' : ''} ({p.working_on.slice(0, 28)}...)
-                </option>
-              ))}
-            </select>
-            {profileB && (
-              <p className="text-xs text-stone-600 leading-relaxed pt-1 line-clamp-2">
-                <span className="font-medium text-stone-800">{profileB.name}:</span> {profileB.working_on}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Action button */}
-        <div className="mt-5 flex items-center gap-3">
+    return (
+      <div className="w-full max-w-2xl mx-auto space-y-4 animate-in fade-in duration-200">
+        {/* Back navigation header button */}
+        <div className="flex items-center justify-between px-1">
           <button
-            id="start-mingling-btn"
             type="button"
-            disabled={isMingling || !profileA || !profileB || profileA.id === profileB.id || isPairIneligible}
-            onClick={handleStartMingling}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium text-stone-50 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer shadow-xs"
+            onClick={() => setSelectedSessionId(null)}
+            className="inline-flex items-center gap-2 text-xs sm:text-sm font-semibold text-stone-700 hover:text-stone-950 py-1 px-2.5 -ml-2.5 rounded-xl hover:bg-stone-100 transition cursor-pointer"
           >
-            {isMingling ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Agents Mingling in Background...</span>
-              </>
-            ) : isPairIneligible ? (
-              <span>Attendee Ineligible (Not Open to Introductions)</span>
-            ) : (
-              <>
-                <Play className="w-4 h-4 fill-current" />
-                <span>Start Mingling</span>
-              </>
-            )}
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Mingle List</span>
           </button>
 
-          {(transcript.length > 0 || decision) && !isMingling && (
+          {isTalking && (
+            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-stone-900 text-stone-50 flex items-center gap-1.5 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>Turn {activeSelectedSession.currentTurn}/4 Live</span>
+            </span>
+          )}
+        </div>
+
+        {/* Main In-Page Conversation Card */}
+        <section className="bg-white border border-stone-200/80 rounded-3xl p-5 sm:p-6 shadow-xs space-y-5">
+          {/* Card Header */}
+          <div className="flex items-start justify-between gap-3 pb-4 border-b border-stone-100">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base shrink-0 shadow-xs ${
+                  isMatch
+                    ? 'bg-emerald-600 text-emerald-50'
+                    : isTalking
+                    ? 'bg-stone-900 text-stone-50'
+                    : 'bg-stone-100 text-stone-800 border border-stone-200'
+                }`}
+              >
+                {target.name.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-bold text-stone-900 text-lg sm:text-xl truncate">
+                    {target.name}
+                  </h2>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center gap-1">
+                    <span>{TONE_EMOJIS[target.agent_tone || 'cool']}</span>
+                    <span className="capitalize">{target.agent_tone || 'cool'}</span>
+                  </span>
+                </div>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Autonomous 4-Turn Agent Dialogue
+                </p>
+              </div>
+            </div>
+
+            {isMatch && (
+              <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shrink-0 shadow-xs">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Match Confirmed</span>
+              </span>
+            )}
+          </div>
+
+          {/* Confirmed Match Rationale Banner */}
+          {isMatch && activeSelectedSession.decision && (
+            <div className="p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-left space-y-1.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Why you two should connect</span>
+              </div>
+              <p className="text-xs sm:text-sm text-stone-900 font-medium leading-relaxed">
+                "{activeSelectedSession.decision.reason}"
+              </p>
+            </div>
+          )}
+
+          {/* Non-match Rationale Banner */}
+          {isNonMatch && activeSelectedSession.decision && (
+            <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 text-left text-xs text-stone-600 flex items-start gap-2.5">
+              <XCircle className="w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-stone-800 block mb-0.5">No match this round</span>
+                <span>{activeSelectedSession.decision.reason || 'Agents determined low overlap for this session.'}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Target Attendee Details */}
+          <div className="p-4 rounded-2xl bg-stone-50/80 border border-stone-200/70 text-xs sm:text-sm text-stone-700 space-y-2">
+            <div>
+              <span className="font-bold text-stone-900 uppercase tracking-wider text-[11px] block mb-0.5">
+                What they're working on
+              </span>
+              <p className="text-stone-700 leading-relaxed">{target.working_on}</p>
+            </div>
+
+            {target.looking_for && (
+              <div className="pt-2 border-t border-stone-200/60">
+                <span className="font-bold text-stone-900 uppercase tracking-wider text-[11px] block mb-0.5">
+                  Who they'd like to meet
+                </span>
+                <p className="text-stone-700 leading-relaxed">{target.looking_for}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Transcript Dialogue Section */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-stone-500 px-1">
+              <span>Dialogue Exchange</span>
+              <span className="font-medium text-stone-400 normal-case">
+                {activeSelectedSession.transcript.length} turns recorded
+              </span>
+            </div>
+
+            {activeSelectedSession.transcript.length === 0 ? (
+              <div className="py-10 text-center text-xs text-stone-400 space-y-2 bg-stone-50/50 rounded-2xl border border-stone-100">
+                <MessageSquare className="w-7 h-7 mx-auto text-stone-300" />
+                <p>Agent negotiation is queued and will begin shortly...</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeSelectedSession.transcript.map((msg, idx) => {
+                  const isMe = msg.speaker === 'A';
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex flex-col ${isMe ? 'items-start' : 'items-end'}`}
+                    >
+                      <div className="text-[10px] text-stone-500 font-medium px-1 mb-1 flex items-center gap-1">
+                        <span>
+                          {isMe
+                            ? `${activeMyProfile.name}'s Agent (You)`
+                            : `${target.name}'s Agent`}
+                        </span>
+                        <span>• Turn {idx + 1}</span>
+                      </div>
+                      <div
+                        className={`px-4 py-3 rounded-2xl text-xs sm:text-sm leading-relaxed max-w-[88%] ${
+                          isMe
+                            ? 'bg-stone-100 text-stone-900 rounded-tl-xs border border-stone-200/70'
+                            : 'bg-stone-900 text-stone-50 rounded-tr-xs shadow-xs'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Active speaking indicator */}
+            {isTalking && (
+              <div className="flex items-center gap-2 text-xs text-stone-500 italic px-2 py-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" />
+                <span>
+                  {activeSelectedSession.currentSpeaker === 'A'
+                    ? `${activeMyProfile.name}'s agent is replying...`
+                    : `${target.name}'s agent is replying...`}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Action to return */}
+          <div className="pt-3 border-t border-stone-100 flex justify-end">
             <button
               type="button"
-              onClick={handleReset}
-              className="px-4 py-3 text-sm font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-xl transition cursor-pointer"
+              onClick={() => setSelectedSessionId(null)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 text-stone-50 text-xs sm:text-sm font-semibold rounded-xl transition cursor-pointer shadow-xs"
             >
-              Reset
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Mingle List</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // MAIN MINGLE SCREEN (List of Chats & Controls)
+  // ==========================================
+  return (
+    <div className="w-full max-w-2xl mx-auto space-y-4">
+      {/* Top Banner & Control Card */}
+      <section
+        id="mingle-control-card"
+        className="bg-white border border-stone-200/80 rounded-3xl p-4 sm:p-6 shadow-xs space-y-4"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-stone-900 flex items-center gap-2">
+              <Bot className="w-5 h-5 text-stone-900" />
+              <span>Live Agent Mingle</span>
+            </h2>
+            <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+              Your agent reaches out to other attendees autonomously to discover high-value matches.
+            </p>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-stone-50 border border-stone-200 text-xs shrink-0">
+            <span className="font-semibold text-stone-800">{activeMyProfile.name}</span>
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-white text-stone-700 border border-stone-200 font-semibold flex items-center gap-1">
+              <span>{TONE_EMOJIS[activeMyProfile.agent_tone || 'cool']}</span>
+              <span className="capitalize">{activeMyProfile.agent_tone || 'cool'}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Number of chats selector (Available whenever not actively in the middle of talking) */}
+        {!isRunning && (
+          <div className="pt-3 border-t border-stone-100 space-y-2.5">
+            <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider">
+              {cleanChatSessions.length > 0 ? 'Select number of chats for new round' : 'How many chats should your agent do?'}
+            </label>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {[2, 3, 5, Math.min(8, eligibleCandidates.length || 8)].map((num) => {
+                if (num > (eligibleCandidates.length || 5) && num !== 2) return null;
+                const isSelected = numChatsToRun === num;
+                return (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setNumChatsToRun(num)}
+                    className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-stone-900 text-stone-50 shadow-xs'
+                        : 'bg-stone-100 text-stone-700 hover:bg-stone-200 border border-stone-200/80'
+                    }`}
+                  >
+                    {num} Chats
+                  </button>
+                );
+              })}
+
+              {eligibleCandidates.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setNumChatsToRun(eligibleCandidates.length)}
+                  className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer ${
+                    numChatsToRun === eligibleCandidates.length
+                      ? 'bg-stone-900 text-stone-50 shadow-xs'
+                      : 'bg-stone-100 text-stone-700 hover:bg-stone-200 border border-stone-200/80'
+                  }`}
+                >
+                  All in Room ({eligibleCandidates.length})
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Action Button: "Go and Talk" / "Run New Round" */}
+        <div className="pt-1 flex items-center gap-2">
+          {!isRunning ? (
+            <button
+              id="start-go-talk-btn"
+              type="button"
+              onClick={handleStartMingling}
+              disabled={isLoadingProfiles || eligibleCandidates.length === 0}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 px-5 text-sm sm:text-base font-semibold text-stone-50 bg-stone-900 hover:bg-stone-800 active:bg-stone-950 rounded-xl transition cursor-pointer shadow-xs disabled:opacity-50"
+            >
+              {cleanChatSessions.length === 0 ? (
+                <>
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Go and Talk ({numChatsToRun} Chats)</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Run New Round ({numChatsToRun} Chats)</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleStopMingling}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 px-5 text-sm font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-xl transition cursor-pointer"
+            >
+              <Pause className="w-4 h-4" />
+              <span>Pause Mingle ({completedCount}/{cleanChatSessions.length} done)</span>
             </button>
           )}
         </div>
+
+        {/* Live Progress Bar */}
+        {cleanChatSessions.length > 0 && (
+          <div className="pt-2 border-t border-stone-100 space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-semibold text-stone-600">
+              <span className="flex items-center gap-1.5">
+                {isRunning && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                <span>
+                  {isRunning
+                    ? `Agent actively mingling (${completedCount}/${cleanChatSessions.length} chats completed)`
+                    : `Completed ${completedCount} of ${cleanChatSessions.length} chats`}
+                </span>
+              </span>
+              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 font-semibold">
+                {matchesFoundCount} {matchesFoundCount === 1 ? 'Match' : 'Matches'}
+              </span>
+            </div>
+
+            <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-stone-900 transition-all duration-300 ease-out"
+                style={{
+                  width: `${(completedCount / (cleanChatSessions.length || 1)) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
       </section>
 
-      {/* Live Conversation Transcript */}
-      {(transcript.length > 0 || currentTurnSpeaker) && (
-        <section id="transcript-section" className="bg-white border border-stone-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-            <h3 className="text-sm font-semibold text-stone-900 tracking-tight flex items-center gap-2">
-              <span>Agent Exchange Transcript</span>
-              <span className="text-xs font-normal text-stone-500">
-                ({transcript.length}/4 turns)
-              </span>
+      {/* List of Chats */}
+      {sortedSessions.length > 0 && (
+        <section id="chats-list-section" className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500">
+              Agent Conversations ({sortedSessions.length})
             </h3>
-            {isMingling && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-stone-600 bg-stone-100 px-2.5 py-1 rounded-full animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                <span>Active Negotiation</span>
-              </span>
-            )}
+            <span className="text-[11px] text-stone-400 font-medium">
+              Matches shift to top • Click to view transcript
+            </span>
           </div>
 
-          <div className="space-y-3.5 max-h-[380px] overflow-y-auto pr-1">
-            {transcript.map((msg, index) => {
-              const isA = msg.speaker === 'A';
-              return (
-                <div
-                  key={index}
-                  className={`flex flex-col ${isA ? 'items-start' : 'items-end'} animate-in fade-in slide-in-from-bottom-2 duration-300`}
-                >
-                  <div className="flex items-center gap-1.5 mb-1 px-1 text-xs text-stone-500 font-medium">
-                    <span>{msg.name}'s Agent</span>
-                    <span className="text-[10px] text-stone-400">• Turn {index + 1}</span>
-                  </div>
-                  <div
-                    className={`max-w-[85%] sm:max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                      isA
-                        ? 'bg-stone-100 text-stone-900 rounded-tl-sm'
-                        : 'bg-stone-900 text-stone-50 rounded-tr-sm'
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="space-y-2.5">
+            {sortedSessions.map((session) => {
+              const target = session.targetProfile;
+              const isMatch = session.status === 'completed' && session.decision?.matched === true;
+              const isNonMatch = session.status === 'completed' && session.decision?.matched === false;
+              const isTalking = session.status === 'talking';
+              const isQueued = session.status === 'queued';
+              const isIneligible = session.status === 'ineligible';
 
-            {/* Current speaking typing bubble */}
-            {currentTurnSpeaker && (
-              <div
-                className={`flex flex-col ${currentTurnSpeaker === 'A' ? 'items-start' : 'items-end'} animate-in fade-in duration-200`}
-              >
-                <div className="flex items-center gap-1.5 mb-1 px-1 text-xs text-stone-500 font-medium">
-                  <span>
-                    {currentTurnSpeaker === 'A' ? profileA?.name : profileB?.name}'s Agent is formulating...
-                  </span>
-                </div>
-                <div
-                  className={`px-4 py-3 rounded-2xl text-sm ${
-                    currentTurnSpeaker === 'A'
-                      ? 'bg-stone-100 text-stone-600 rounded-tl-sm'
-                      : 'bg-stone-800 text-stone-300 rounded-tr-sm'
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => setSelectedSessionId(session.id)}
+                  className={`w-full text-left bg-white border rounded-2xl p-4 sm:p-4.5 shadow-xs transition-all duration-200 cursor-pointer hover:shadow-sm flex items-center justify-between gap-3 ${
+                    isMatch
+                      ? 'border-emerald-500/80 bg-gradient-to-r from-emerald-50/30 via-white to-white ring-1 ring-emerald-500/20 hover:border-emerald-600'
+                      : isTalking
+                      ? 'border-stone-400 bg-stone-50/40 ring-1 ring-stone-900/10'
+                      : 'border-stone-200/80 hover:border-stone-300'
                   }`}
                 >
-                  <span className="inline-flex gap-1 items-center">
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:-0.3s]"></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce [animation-delay:-0.15s]"></span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"></span>
-                  </span>
-                </div>
-              </div>
-            )}
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    {/* Avatar */}
+                    <div
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 shadow-xs ${
+                        isMatch
+                          ? 'bg-emerald-600 text-emerald-50'
+                          : isTalking
+                          ? 'bg-stone-900 text-stone-50'
+                          : 'bg-stone-100 text-stone-800 border border-stone-200'
+                      }`}
+                    >
+                      {target.name.charAt(0).toUpperCase()}
+                    </div>
 
-            <div ref={transcriptBottomRef} />
+                    {/* Details */}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-stone-900 text-sm sm:text-base truncate">
+                          {target.name}
+                        </span>
+
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center gap-1">
+                          <span>{TONE_EMOJIS[target.agent_tone || 'cool']}</span>
+                          <span className="capitalize">{target.agent_tone || 'cool'}</span>
+                        </span>
+
+                        {/* Status Pills: Concise match / no match status without multiline text */}
+                        {isMatch && (
+                          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-emerald-600" />
+                            <span>Match</span>
+                          </span>
+                        )}
+
+                        {isTalking && (
+                          <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-stone-900 text-stone-50 flex items-center gap-1.5 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>Turn {session.currentTurn}/4 Talking</span>
+                          </span>
+                        )}
+
+                        {isQueued && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-500">
+                            Queued
+                          </span>
+                        )}
+
+                        {isNonMatch && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-600">
+                            No match
+                          </span>
+                        )}
+
+                        {isIneligible && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3 text-amber-600" />
+                            <span>Opted Out</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Attendee Focus */}
+                      <p className="text-xs text-stone-600 line-clamp-1 truncate">
+                        <span className="font-semibold text-stone-700">Focus: </span>
+                        {target.working_on}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right Arrow */}
+                  <div className="flex items-center gap-1 text-stone-400 shrink-0">
+                    <span className="text-xs font-semibold text-stone-500 hidden sm:inline">
+                      View
+                    </span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
       )}
 
-      {/* Match Decision Reveal Screen */}
-      {decision && (
-        <section id="decision-section" className="animate-in fade-in slide-in-from-bottom-3 duration-300">
-          {decision.matched ? (
-            /* True Case: Celebratory Match Payoff Screen */
-            <div className="bg-stone-950 text-stone-50 border border-stone-800 rounded-3xl p-7 sm:p-10 shadow-xl text-center relative overflow-hidden">
-              {/* Subtle top indicator bar */}
-              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500" />
+      {/* Empty State before any chats have run */}
+      {cleanChatSessions.length === 0 && !isRunning && (
+        <div className="bg-white border border-stone-200/80 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-stone-100 text-stone-700 flex items-center justify-center mx-auto">
+            <Zap className="w-6 h-6 text-amber-600" />
+          </div>
 
-              <div className="space-y-6 max-w-xl mx-auto">
-                <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  <CheckCircle2 className="w-7 h-7 stroke-[2]" />
-                </div>
-
-                <div className="space-y-2">
-                  <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 px-3.5 py-1 rounded-full border border-emerald-700/50">
-                    Match Confirmed • Introduction Created
-                  </span>
-                  
-                  <h3 className="text-3xl sm:text-4xl font-bold tracking-tight text-stone-50 pt-1">
-                    {profileA?.name} <span className="text-emerald-400 font-light">&</span> {profileB?.name}
-                  </h3>
-                </div>
-
-                {/* Generated Reason Line - Front and Center */}
-                <div className="bg-stone-900/90 border border-stone-800 rounded-2xl p-5 sm:p-6 text-left space-y-2 shadow-inner">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400 block">
-                    Why you two should connect
-                  </span>
-                  <p className="text-base sm:text-lg text-stone-100 font-medium leading-relaxed">
-                    "{decision.reason}"
-                  </p>
-                </div>
-
-                <p className="text-xs text-stone-400 pt-1">
-                  Match recorded in event database. Go find each other on the floor!
-                </p>
-              </div>
-            </div>
-          ) : (
-            /* False Case: Calm, Visually Distinct Rejection State */
-            <div className="bg-stone-100/90 border border-stone-200 rounded-2xl p-6 sm:p-8 text-center space-y-3">
-              <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-stone-200 text-stone-500 mb-1">
-                <XCircle className="w-5 h-5 stroke-[1.75]" />
-              </div>
-
-              <h3 className="text-lg font-semibold text-stone-800 tracking-tight">
-                No strong overlap this time
-              </h3>
-
-              <p className="text-stone-600 text-sm max-w-md mx-auto leading-relaxed">
-                {decision.reason || 'Their current project focus areas and event goals are in distinct directions.'}
-              </p>
-            </div>
-          )}
-        </section>
+          <div className="space-y-1.5 max-w-sm mx-auto">
+            <h3 className="text-base sm:text-lg font-bold text-stone-900">
+              Ready to find your best matches
+            </h3>
+            <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+              Choose how many attendees you want your agent to converse with above and click{' '}
+              <span className="font-semibold text-stone-900">"Go and Talk"</span>.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

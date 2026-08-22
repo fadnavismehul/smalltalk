@@ -26,6 +26,24 @@ export interface CapturedProfileData {
   working_on: string;
   interest_tags: string[];
   looking_for: string;
+  agent_tone?: string;
+}
+
+export function getToneDescription(tone?: string): string {
+  switch (tone) {
+    case 'cool':
+      return 'Speak with a calm, understated, effortlessly modern and confident tone. Keep it low-key, sharp, and concise.';
+    case 'warm':
+      return 'Speak with an enthusiastic, supportive, welcoming, and genuinely encouraging tone. Express authentic excitement for shared work.';
+    case 'quirky':
+      return 'Speak with a playful, creative, witty, and slightly unconventional angle. Use vivid metaphors and show distinctive personality.';
+    case 'direct':
+      return 'Speak with high efficiency, zero fluff, analytical precision, and clear goal-oriented inquiries.';
+    case 'curious':
+      return 'Speak with deep intellectual curiosity, asking probing thoughtful technical questions and showing genuine fascination.';
+    default:
+      return 'Direct, curious, polite, authentic, and naturally conversational.';
+  }
 }
 
 export interface TurnPromptParams {
@@ -63,18 +81,20 @@ Extract:
 
   // Step 2: Agent Negotiation (Per-Turn Conversation)
   negotiateTurn: {
-    getSystemInstruction: (speaker: 'A' | 'B', clientName: string, otherName: string): string => {
+    getSystemInstruction: (speaker: 'A' | 'B', clientName: string, otherName: string, agentTone?: string): string => {
       const otherSpeaker = speaker === 'A' ? 'B' : 'A';
+      const toneInstruction = getToneDescription(agentTone);
       const rawMarkdown = loadMarkdownPrompt(
         'negotiate_agent_system.md',
-        `You are profile ${speaker}'s agent (${clientName}'s agent), mingling with ${otherName}'s agent to find genuine shared ground. Reply in 1-2 short, natural sentences.`
+        `You are profile ${speaker}'s agent (${clientName}'s agent), mingling with ${otherName}'s agent to find genuine shared ground. Personality Tone: ${toneInstruction}. Reply in 1-2 short, natural sentences.`
       );
 
       return rawMarkdown
         .replace(/{{CLIENT_NAME}}/g, clientName)
         .replace(/{{OTHER_CLIENT_NAME}}/g, otherName)
         .replace(/{{SPEAKER}}/g, speaker)
-        .replace(/{{OTHER_SPEAKER}}/g, otherSpeaker);
+        .replace(/{{OTHER_SPEAKER}}/g, otherSpeaker)
+        .replace(/{{AGENT_TONE_INSTRUCTION}}/g, toneInstruction);
     },
 
     buildUserPrompt: ({ currentProfile, otherProfile, formattedTranscript }: TurnPromptParams): string => `Context:
@@ -82,6 +102,7 @@ Your client: ${currentProfile.name}
 - Working on: ${currentProfile.working_on}
 - Tags: ${(currentProfile.interest_tags || []).join(', ')}
 - Looking for: ${currentProfile.looking_for}
+- Agent Personality Tone: ${currentProfile.agent_tone || 'direct and curious'}
 
 The other attendee: ${otherProfile.name}
 - Working on: ${otherProfile.working_on}
@@ -91,7 +112,7 @@ The other attendee: ${otherProfile.name}
 Conversation transcript so far:
 ${formattedTranscript}
 
-Generate the next turn in the conversation speaking directly to ${otherProfile.name}'s agent in 1-2 natural sentences.`,
+Generate the next turn in the conversation speaking directly to ${otherProfile.name}'s agent in 1-2 natural sentences, matching your assigned personality tone.`,
   },
 
   // Step 3: Match Decision & Reason Generation
