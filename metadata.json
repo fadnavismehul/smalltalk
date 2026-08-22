@@ -1,0 +1,8 @@
+{
+  "name": "smalltalk",
+  "description": "Live event networking tool with preference capture and agentic matching preparation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
