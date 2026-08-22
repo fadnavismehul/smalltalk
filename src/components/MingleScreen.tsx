@@ -401,7 +401,15 @@ export default function MingleScreen({
                     : 'bg-stone-100 text-stone-800 border border-stone-200'
                 }`}
               >
-                {target.name.charAt(0).toUpperCase()}
+                {target.photo ? (
+                  <img
+                    src={target.photo}
+                    alt={target.name}
+                    className="w-full h-full rounded-2xl object-cover"
+                  />
+                ) : (
+                  target.name.charAt(0).toUpperCase()
+                )}
               </div>
 
               <div className="min-w-0">
@@ -520,7 +528,7 @@ export default function MingleScreen({
             {/* Active speaking indicator */}
             {isTalking && (
               <div className="flex items-center gap-2 text-xs text-stone-500 italic px-2 py-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span>
                   {activeSelectedSession.currentSpeaker === 'A'
                     ? `${activeMyProfile.name}'s agent is replying...`
@@ -729,7 +737,15 @@ export default function MingleScreen({
                           : 'bg-stone-100 text-stone-800 border border-stone-200'
                       }`}
                     >
-                      {target.name.charAt(0).toUpperCase()}
+                      {target.photo ? (
+                        <img
+                          src={target.photo}
+                          alt={target.name}
+                          className="w-full h-full rounded-xl object-cover"
+                        />
+                      ) : (
+                        target.name.charAt(0).toUpperCase()
+                      )}
                     </div>
 
                     {/* Details */}

@@ -8,6 +8,7 @@ export interface Profile {
   looking_for: string;
   open_to_talk: boolean;
   agent_tone?: AgentTone;
+  photo?: string;
   captured_at: string;
 }
 

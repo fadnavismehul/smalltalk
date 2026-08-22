@@ -17,7 +17,7 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
 export interface CapturedProfile {
   id: string;
@@ -27,6 +27,7 @@ export interface CapturedProfile {
   looking_for: string;
   open_to_talk: boolean;
   agent_tone?: string;
+  photo?: string;
   captured_at: string;
 }
 
@@ -45,105 +46,85 @@ if (!fs.existsSync(DATA_DIR)) {
 
 const SEED_PROFILES: CapturedProfile[] = [
   {
-    id: 'seed-mehul',
-    name: 'Mehul',
-    working_on: 'Building a social networking app for live hackathons with autonomous AI agents that negotiate introductions.',
-    interest_tags: ['AI Agents', 'Networking', 'Hackathons', 'Developer Tools'],
-    looking_for: 'Testing agent matching algorithms and connecting with developers building AI agent infra or hackathon tools.',
-    open_to_talk: true,
-    agent_tone: 'cool',
-    captured_at: new Date('2026-08-21T18:00:00Z').toISOString(),
-  },
-  {
     id: 'seed-1',
     name: 'Maya Chen',
-    working_on: 'Building an open-source evaluation benchmark and agent runtime for LLM code generation.',
-    interest_tags: ['AI Agents', 'Developer Tools', 'Open Source', 'LLM Eval'],
-    looking_for: 'Looking to meet AI engineers experimenting with autonomous coding workflows and potential technical co-founders.',
+    working_on: 'Building an open-source evaluation harness for multi-agent LLM systems — measuring negotiation quality, tool-use accuracy, and failure recovery across agent frameworks.',
+    interest_tags: ['AI Agents', 'LLM Evals', 'Open Source', 'Developer Tools'],
+    looking_for: 'Engineers shipping real agent-to-agent products who want rigorous evals, and a potential technical co-founder with infra depth.',
     open_to_talk: true,
     agent_tone: 'curious',
-    captured_at: new Date('2026-08-21T18:00:00Z').toISOString(),
+    captured_at: new Date('2026-08-22T09:00:00Z').toISOString(),
   },
   {
     id: 'seed-2',
-    name: 'Liam Vance',
-    working_on: 'Developing a local-first compiler and sandbox environment for executing AI agent-generated code securely.',
-    interest_tags: ['Compilers', 'Sandboxing', 'Developer Tools', 'Security'],
-    looking_for: 'Looking to partner with agent framework builders who need low-latency, isolated execution environments.',
+    name: 'Daniel Okafor',
+    working_on: 'Real-time voice AI infrastructure — sub-300ms speech-to-speech pipelines over WebRTC, currently powering live translation for event stages.',
+    interest_tags: ['Voice AI', 'WebRTC', 'Real-Time Systems', 'Speech'],
+    looking_for: 'Builders adding voice interfaces to their apps, and anyone with hard latency problems in production audio pipelines.',
     open_to_talk: true,
     agent_tone: 'direct',
-    captured_at: new Date('2026-08-21T18:05:00Z').toISOString(),
+    captured_at: new Date('2026-08-22T09:10:00Z').toISOString(),
   },
   {
     id: 'seed-3',
-    name: 'Elena Rostova',
-    working_on: 'Designing low-power IoT soil sensors and mesh telemetry hardware for regenerative agriculture.',
-    interest_tags: ['Climate Tech', 'Hardware', 'IoT Telemetry', 'Agriculture'],
-    looking_for: 'Looking to meet embedded systems firmware developers and agritech domain advisors.',
+    name: 'Sofia Marquez',
+    working_on: 'Product lead for a 3,000-attendee conference platform — redesigning how attendees discover each other using interest graphs instead of job titles.',
+    interest_tags: ['Event Tech', 'Product', 'Recommendation Systems', 'Community'],
+    looking_for: 'AI engineers who can turn messy attendee bios into structured matching signals, and founders in the events space to swap notes with.',
     open_to_talk: true,
     agent_tone: 'warm',
-    captured_at: new Date('2026-08-21T18:10:00Z').toISOString(),
+    captured_at: new Date('2026-08-22T09:20:00Z').toISOString(),
   },
   {
     id: 'seed-4',
-    name: 'Marcus Brody',
-    working_on: 'Scaling a specialized B2B logistics SaaS platform for regional cold-chain pharmaceutical distribution.',
-    interest_tags: ['Supply Chain', 'B2B SaaS', 'Healthcare Logistics', 'Operations'],
-    looking_for: 'Looking to connect with enterprise sales leaders and angel investors with supply chain backgrounds.',
+    name: 'Kenji Tanaka',
+    working_on: 'Fine-tuning small multimodal models for on-device photo and audio understanding — profile extraction from a selfie and a 15-second voice note.',
+    interest_tags: ['Multimodal AI', 'On-Device ML', 'Computer Vision', 'Speech'],
+    looking_for: 'People with real user data pipelines who want fast multimodal extraction, and researchers pushing small-model quality.',
     open_to_talk: true,
-    agent_tone: 'direct',
-    captured_at: new Date('2026-08-21T18:15:00Z').toISOString(),
-  },
-  {
-    id: 'seed-5',
-    name: 'Aisha Patel',
-    working_on: 'Training multi-modal diffusion models for real-time generative UI component styling and design tokens.',
-    interest_tags: ['Generative Design', 'UI/UX', 'Design Systems', 'Frontend AI'],
-    looking_for: 'Looking for frontend engineers passionate about generative design systems and interactive canvas tools.',
-    open_to_talk: true,
-    agent_tone: 'quirky',
-    captured_at: new Date('2026-08-21T18:20:00Z').toISOString(),
+    agent_tone: 'cool',
+    captured_at: new Date('2026-08-22T09:30:00Z').toISOString(),
   },
   {
     id: 'seed-6',
-    name: 'David Kim',
-    working_on: 'Creating fine-tuned sound synthesis models and spatial audio plugins for interactive game engines.',
-    interest_tags: ['Audio DSP', 'Game Audio', 'Creative Tech', 'Music AI'],
-    looking_for: 'Looking to chat with indie game creators, sound designers, and interactive media artists.',
+    name: 'Marguerite Dubois',
+    working_on: 'Running a small-batch patisserie and testing a subscription model for regional croissant delivery — here to explore tech for order logistics.',
+    interest_tags: ['Food & Beverage', 'Subscriptions', 'Local Business', 'Logistics'],
+    looking_for: 'Food industry investors and anyone who has scaled a perishable-goods delivery operation.',
     open_to_talk: true,
-    agent_tone: 'quirky',
-    captured_at: new Date('2026-08-21T18:25:00Z').toISOString(),
+    agent_tone: 'warm',
+    captured_at: new Date('2026-08-22T09:50:00Z').toISOString(),
   },
   {
     id: 'seed-7',
-    name: 'Sarah Jenkins',
-    working_on: 'Architecting zero-knowledge proof verification infrastructure for cross-chain compliance reporting.',
-    interest_tags: ['Zero Knowledge', 'Cryptography', 'Fintech', 'Distributed Systems'],
-    looking_for: 'Looking to exchange ideas with applied cryptographers and distributed systems architects.',
+    name: 'Tom Whitfield',
+    working_on: 'Restoring vintage synthesizers and building a marketplace for authenticated analog music gear with escrow-based trades.',
+    interest_tags: ['Music Hardware', 'Marketplaces', 'Collectibles', 'E-commerce'],
+    looking_for: 'Fellow synth collectors and marketplace operators who have solved authentication and escrow for high-value physical goods.',
     open_to_talk: true,
-    agent_tone: 'direct',
-    captured_at: new Date('2026-08-21T18:30:00Z').toISOString(),
+    agent_tone: 'quirky',
+    captured_at: new Date('2026-08-22T09:55:00Z').toISOString(),
   },
   {
     id: 'seed-8',
-    name: 'Julian Thorne',
-    working_on: 'Building an offline-first collaborative canvas for product teams with real-time CRDT sync.',
-    interest_tags: ['CRDTs', 'Local-First', 'Canvas UI', 'Collaboration'],
-    looking_for: 'Looking to discuss conflict resolution algorithms and web performance optimization for large graph trees.',
+    name: 'Ingrid Halvorsen',
+    working_on: 'Marine biologist mapping kelp forest recovery off the Norwegian coast with underwater drone photogrammetry.',
+    interest_tags: ['Marine Biology', 'Ocean Tech', 'Drones', 'Conservation'],
+    looking_for: 'Grant co-authors in ocean sciences and underwater robotics hardware specialists.',
     open_to_talk: true,
-    agent_tone: 'cool',
-    captured_at: new Date('2026-08-21T18:35:00Z').toISOString(),
+    agent_tone: 'curious',
+    captured_at: new Date('2026-08-22T10:00:00Z').toISOString(),
   },
   {
-    id: 'seed-inactive',
-    name: 'Alex Rivera',
-    working_on: 'Head-down focused sprint on GPU kernel optimization, not networking today.',
-    interest_tags: ['CUDA', 'Performance', 'Low Level'],
-    looking_for: 'Solo hacking session.',
+    id: 'seed-5',
+    name: 'Priya Nair',
+    working_on: 'Heads-down sprint on a GPU inference scheduler today — at the venue but not taking meetings.',
+    interest_tags: ['GPU Infrastructure', 'Inference', 'Performance'],
+    looking_for: 'Nothing today — deep work mode.',
     open_to_talk: false,
     agent_tone: 'direct',
-    captured_at: new Date('2026-08-21T18:40:00Z').toISOString(),
-  }
+    captured_at: new Date('2026-08-22T09:40:00Z').toISOString(),
+  },
 ];
 
 export interface MatchRecord {
@@ -218,6 +199,7 @@ function getGenAIClient(): GoogleGenAI | null {
   }
   return new GoogleGenAI({
     apiKey,
+    vertexai: process.env.USE_VERTEX_AI === 'true',
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
@@ -226,12 +208,102 @@ function getGenAIClient(): GoogleGenAI | null {
   });
 }
 
+// --- OpenRouter provider (OpenAI-compatible protocol) ---
+// When OPENROUTER_API_KEY is set, all AI calls route through OpenRouter
+// to Gemini 3.7 Flash instead of the Google Gemini API.
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+function getOpenRouterKey(): string | null {
+  return process.env.OPENROUTER_API_KEY || null;
+}
+
+async function openRouterGenerate(opts: {
+  system?: string;
+  user: string;
+  audio?: { data: string; mimeType: string };
+  json?: boolean;
+  temperature?: number;
+}): Promise<string> {
+  const key = getOpenRouterKey();
+  if (!key) throw new Error('OPENROUTER_API_KEY not configured');
+  const model = process.env.OPENROUTER_MODEL || 'google/gemini-3.7-flash';
+
+  const userContent: any = opts.audio
+    ? [
+        { type: 'text', text: opts.user },
+        {
+          type: 'input_audio',
+          input_audio: {
+            data: opts.audio.data,
+            format: (opts.audio.mimeType.split('/')[1] || 'webm').split(';')[0],
+          },
+        },
+      ]
+    : opts.user;
+
+  const messages: any[] = [];
+  if (opts.system) messages.push({ role: 'system', content: opts.system });
+  messages.push({ role: 'user', content: userContent });
+
+  const resp = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+      ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
+    }),
+  });
+
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data?.error?.message || `OpenRouter error ${resp.status}`);
+  }
+  const text = data?.choices?.[0]?.message?.content;
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error('Empty response from OpenRouter');
+  }
+  return text.trim();
+}
+
+// Parse JSON out of a model response, stripping markdown fences if present
+function extractJson(text: string): any {
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim();
+  return JSON.parse(cleaned);
+}
+
 app.post('/api/generate-name', async (req: Request, res: Response) => {
   try {
     const { working_on, looking_for, tone } = req.body;
     const ai = getGenAIClient();
 
-    if (ai && (working_on || looking_for)) {
+    if (getOpenRouterKey() && (working_on || looking_for)) {
+      try {
+        const text = await openRouterGenerate({
+          system: 'You generate catchy 2-part attendee names or aliases (exactly 2 words) inspired by what someone is building.',
+          user: `Based on what this person is working on and looking for, generate a catchy, fun, memorable 2-word name (like "Vector Voyager", "Prompt Pioneer", "Neural Nomad").
+Working on: ${working_on || 'building AI projects'}
+Looking for: ${looking_for || 'meeting tech builders'}
+Tone: ${tone || 'cool'}
+
+Return ONLY JSON: {"name": "<2-word name>"}`,
+          json: true,
+        });
+        const parsed = extractJson(text);
+        if (parsed.name && typeof parsed.name === 'string') {
+          return res.status(200).json({ name: parsed.name.trim() });
+        }
+      } catch (e) {
+        console.error('OpenRouter generate-name failed, using fallback:', e);
+      }
+    } else if (ai && (working_on || looking_for)) {
       const response = await ai.models.generateContent({
         model: 'gemini-3.7-flash',
         contents: `Based on what this person is working on and looking for, generate a catchy, fun, memorable 2-word name (like "Vector Voyager", "Prompt Pioneer", "Neural Nomad", "Code Crafter", "Agent Alex", "Pixel Pilot", "Acoustic Artisan", "Kernel Kai").
@@ -276,7 +348,7 @@ Return ONLY JSON matching the schema.`,
 
 app.post('/api/capture', async (req: Request, res: Response) => {
   try {
-    const { name: rawName, working_on_raw, looking_for_raw, open_to_talk, agent_tone } = req.body;
+    const { name: rawName, working_on_raw, looking_for_raw, open_to_talk, agent_tone, photo } = req.body;
 
     const name = (rawName && typeof rawName === 'string' && rawName.trim()) 
       ? rawName.trim() 
@@ -287,7 +359,27 @@ app.post('/api/capture', async (req: Request, res: Response) => {
     let looking_for = (looking_for_raw || '').trim() || 'Looking to connect with fellow attendees';
     let interest_tags: string[] = ['Networking', 'Tech'];
 
-    if (ai) {
+    if (getOpenRouterKey()) {
+      try {
+        const prompt = PROMPTS.captureExtraction.buildUserPrompt(name, working_on_raw, looking_for_raw);
+        const text = await openRouterGenerate({
+          system: PROMPTS.captureExtraction.getSystemInstruction(),
+          user: `${prompt}
+
+Return ONLY JSON: {"working_on": "<1 sentence summary>", "interest_tags": ["<3-6 short tags>"], "looking_for": "<1 sentence summary>"}`,
+          json: true,
+        });
+        const parsed = extractJson(text);
+        if (parsed.working_on && typeof parsed.working_on === 'string') working_on = parsed.working_on;
+        if (parsed.looking_for && typeof parsed.looking_for === 'string') looking_for = parsed.looking_for;
+        if (Array.isArray(parsed.interest_tags) && parsed.interest_tags.length > 0) {
+          interest_tags = parsed.interest_tags.map((t: any) => String(t));
+        }
+      } catch (aiErr) {
+        console.error('OpenRouter extraction failed, using raw inputs:', aiErr);
+      }
+    } else if (ai) {
+      try {
       const prompt = PROMPTS.captureExtraction.buildUserPrompt(name, working_on_raw, looking_for_raw);
 
       const response = await ai.models.generateContent({
@@ -335,6 +427,10 @@ app.post('/api/capture', async (req: Request, res: Response) => {
       } catch (parseErr) {
         console.error('Failed to parse Gemini JSON response:', parseErr, responseText);
       }
+      } catch (aiErr) {
+        // Fall back to the raw inputs so agent creation still works if the Gemini call fails
+        console.error('Gemini extraction failed, using raw inputs:', aiErr);
+      }
     }
 
     const profile: CapturedProfile = {
@@ -345,6 +441,7 @@ app.post('/api/capture', async (req: Request, res: Response) => {
       looking_for,
       open_to_talk: typeof open_to_talk === 'boolean' ? open_to_talk : true,
       agent_tone: agent_tone || 'cool',
+      photo: typeof photo === 'string' && photo.startsWith('data:image/') ? photo : undefined,
       captured_at: new Date().toISOString(),
     };
 
@@ -365,11 +462,92 @@ app.post('/api/capture', async (req: Request, res: Response) => {
   }
 });
 
+// Voice onboarding: extract structured profile fields from a spoken intro
+app.post('/api/capture-voice', async (req: Request, res: Response) => {
+  try {
+    const { audio, mimeType } = req.body;
+    if (!audio || typeof audio !== 'string') {
+      return res.status(400).json({ error: 'audio (base64 string) is required' });
+    }
+
+    if (getOpenRouterKey()) {
+      const text = await openRouterGenerate({
+        system:
+          'You extract structured networking profiles from short spoken self-introductions at tech events. Be faithful to what was actually said; do not invent details.',
+        user: `This is a hackathon attendee introducing themselves out loud. Extract their details for their networking agent profile. If a field is not mentioned, return an empty string for it.
+
+Return ONLY JSON: {"name": "<name or empty string>", "working_on": "<1-2 sentence summary>", "looking_for": "<1-2 sentence summary>"}`,
+        audio: { data: audio, mimeType: mimeType || 'audio/webm' },
+        json: true,
+      });
+      const parsed = extractJson(text);
+      return res.json({
+        name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
+        working_on: typeof parsed.working_on === 'string' ? parsed.working_on.trim() : '',
+        looking_for: typeof parsed.looking_for === 'string' ? parsed.looking_for.trim() : '',
+      });
+    }
+
+    const ai = getGenAIClient();
+    if (!ai) {
+      return res.status(500).json({ error: 'No AI provider configured (set OPENROUTER_API_KEY or GEMINI_API_KEY)' });
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: mimeType || 'audio/webm', data: audio } },
+            {
+              text: `This is a hackathon attendee introducing themselves out loud. Extract their details for their networking agent profile. If a field is not mentioned, return an empty string for it. Return ONLY JSON matching the schema.`,
+            },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction:
+          'You extract structured networking profiles from short spoken self-introductions at tech events. Be faithful to what was actually said; do not invent details.',
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: {
+              type: Type.STRING,
+              description: "The attendee's name if they said it, else empty string",
+            },
+            working_on: {
+              type: Type.STRING,
+              description: '1-2 sentence summary of what they are building or working on, in first person removed form',
+            },
+            looking_for: {
+              type: Type.STRING,
+              description: '1-2 sentence summary of who they want to meet or what they want from the event',
+            },
+          },
+          required: ['name', 'working_on', 'looking_for'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text?.trim() || '{}');
+    return res.json({
+      name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
+      working_on: typeof parsed.working_on === 'string' ? parsed.working_on.trim() : '',
+      looking_for: typeof parsed.looking_for === 'string' ? parsed.looking_for.trim() : '',
+    });
+  } catch (error: any) {
+    console.error('Capture voice error:', error);
+    return res.status(500).json({ error: error?.message || 'Failed to process voice input' });
+  }
+});
+
 // Update an existing profile
 app.put('/api/profiles/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, working_on, looking_for, interest_tags, open_to_talk, agent_tone } = req.body;
+    const { name, working_on, looking_for, interest_tags, open_to_talk, agent_tone, photo } = req.body;
 
     const existingIndex = profilesStore.findIndex((p) => p.id === id);
     if (existingIndex === -1) {
@@ -385,6 +563,9 @@ app.put('/api/profiles/:id', async (req: Request, res: Response) => {
       interest_tags: Array.isArray(interest_tags) ? interest_tags : current.interest_tags,
       open_to_talk: typeof open_to_talk === 'boolean' ? open_to_talk : current.open_to_talk,
       agent_tone: agent_tone || current.agent_tone || 'cool',
+      photo: photo === null
+        ? undefined
+        : (typeof photo === 'string' && photo.startsWith('data:image/') ? photo : current.photo),
     };
 
     profilesStore[existingIndex] = updated;
@@ -455,7 +636,8 @@ app.post('/api/negotiate-turn', async (req: Request, res: Response) => {
     const otherProfile: CapturedProfile = speaker === 'A' ? profileB : profileA;
 
     const ai = getGenAIClient();
-    if (!ai) {
+    const useOpenRouter = !!getOpenRouterKey();
+    if (!ai && !useOpenRouter) {
       // Fallback response if API key is not configured
       const fallbackMsgs = [
         `Hey! I hear you're focused on ${otherProfile.working_on}. My human ${currentProfile.name} is currently deep into ${currentProfile.working_on}.`,
@@ -487,16 +669,24 @@ app.post('/api/negotiate-turn', async (req: Request, res: Response) => {
       formattedTranscript,
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
-      contents: prompt,
-      config: {
-        systemInstruction,
+    let message = '';
+    if (useOpenRouter) {
+      message = await openRouterGenerate({
+        system: systemInstruction,
+        user: prompt,
         temperature: 0.7,
-      },
-    });
-
-    let message = response.text?.trim() || '';
+      });
+    } else if (ai) {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: prompt,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+        },
+      });
+      message = response.text?.trim() || '';
+    }
     // Clean up any accidental prefixes
     message = message.replace(/^([A-Za-z0-9\s'_-]+agent\s*:\s*)/i, '').replace(/^"|"$/g, '').trim();
 
@@ -547,7 +737,29 @@ app.post('/api/negotiate-decide', async (req: Request, res: Response) => {
     console.log(`[negotiate-decide] Full transcript turns count: ${Array.isArray(full_transcript) ? full_transcript.length : 0}`);
     console.log(`[negotiate-decide] Full transcript passed:\n${formattedTranscript}`);
 
-    if (ai) {
+    if (getOpenRouterKey()) {
+      try {
+        const prompt = PROMPTS.negotiateDecide.buildUserPrompt({
+          profileA,
+          profileB,
+          formattedTranscript,
+        });
+        const text = await openRouterGenerate({
+          system: PROMPTS.negotiateDecide.getSystemInstruction(),
+          user: `${prompt}
+
+Return ONLY JSON: {"match": <boolean>, "confidence": <0.0-1.0>, "reason": "<concise 1-2 sentence introduction rationale grounded in the live exchange>"}`,
+          json: true,
+        });
+        const parsed = extractJson(text);
+        if (typeof parsed.match === 'boolean') match = parsed.match;
+        if (typeof parsed.confidence === 'number') confidence = parsed.confidence;
+        if (typeof parsed.reason === 'string' && parsed.reason.trim()) reason = parsed.reason.trim();
+        console.log('[negotiate-decide] OpenRouter decision result:', { match, confidence, reason });
+      } catch (e) {
+        console.error('OpenRouter decide failed:', e);
+      }
+    } else if (ai) {
       const prompt = PROMPTS.negotiateDecide.buildUserPrompt({
         profileA,
         profileB,

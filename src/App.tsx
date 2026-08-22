@@ -13,6 +13,8 @@ import BottomNav from './components/BottomNav';
 import MingleScreen from './components/MingleScreen';
 import RoomDirectory from './components/RoomDirectory';
 import MatchesFeed from './components/MatchesFeed';
+import VoiceInput from './components/VoiceInput';
+import SelfieCapture from './components/SelfieCapture';
 import { Profile, AgentTone, AgentChatSession } from './types';
 
 type OnboardingStep = 'landing' | 'form' | 'confirmed';
@@ -35,6 +37,7 @@ export default function App() {
   const [lookingFor, setLookingFor] = useState('');
   const [agentTone, setAgentTone] = useState<AgentTone>('cool');
   const [openToTalk, setOpenToTalk] = useState(true);
+  const [photo, setPhoto] = useState<string | null>(null);
   const [isGeneratingName, setIsGeneratingName] = useState(false);
 
   // State
@@ -78,6 +81,28 @@ export default function App() {
       ]);
       if (pRes.profiles && Array.isArray(pRes.profiles)) {
         setProfilesList(pRes.profiles);
+
+        // Stale session check: if the locally saved agent no longer exists on
+        // the server (e.g. after a data reset), wipe local state and start fresh.
+        try {
+          const saved = localStorage.getItem('smalltalk_current_profile');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed?.id && !pRes.profiles.some((p: Profile) => p.id === parsed.id)) {
+              localStorage.removeItem('smalltalk_current_profile');
+              localStorage.removeItem('smalltalk_live_sessions');
+              setActiveProfile(null);
+              setLiveSessions([]);
+              setName('');
+              setWorkingOn('');
+              setLookingFor('');
+              setAgentTone('cool');
+              setOpenToTalk(true);
+              setPhoto(null);
+              setOnboardingStep('landing');
+            }
+          }
+        } catch (_) {}
       }
       if (mRes.matches && Array.isArray(mRes.matches)) {
         setMatchesCount(mRes.matches.length);
@@ -100,6 +125,9 @@ export default function App() {
           setLookingFor(parsed.looking_for || '');
           setAgentTone(parsed.agent_tone || 'cool');
           setOpenToTalk(parsed.open_to_talk !== false);
+          setPhoto(parsed.photo || null);
+          // One agent per attendee: returning users land on their active agent, not onboarding
+          setOnboardingStep('confirmed');
         }
       }
     } catch (e) {
@@ -115,6 +143,7 @@ export default function App() {
       setLookingFor(p.looking_for || '');
       setAgentTone(p.agent_tone || 'cool');
       setOpenToTalk(p.open_to_talk !== false);
+      setPhoto(p.photo || null);
     }
     setError(null);
     setOnboardingStep('form');
@@ -128,9 +157,10 @@ export default function App() {
     setError(null);
 
     try {
+      let updateRes: Response | null = null;
       if (activeProfile && activeProfile.id) {
         // Update existing agent profile directly on the build form
-        const res = await fetch(`/api/profiles/${activeProfile.id}`, {
+        updateRes = await fetch(`/api/profiles/${activeProfile.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -139,9 +169,23 @@ export default function App() {
             looking_for: lookingFor.trim(),
             open_to_talk: openToTalk,
             agent_tone: agentTone,
+            photo: photo,
           }),
         });
 
+        // Stale session: the stored agent no longer exists on the server.
+        // Fall through to creating a fresh one instead of erroring.
+        if (updateRes.status === 404) {
+          setActiveProfile(null);
+          try {
+            localStorage.removeItem('smalltalk_current_profile');
+          } catch (_) {}
+          updateRes = null;
+        }
+      }
+
+      if (updateRes) {
+        const res = updateRes;
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || 'Failed to update agent');
@@ -174,6 +218,7 @@ export default function App() {
             looking_for_raw: lookingFor.trim(),
             open_to_talk: openToTalk,
             agent_tone: agentTone,
+            photo: photo || undefined,
           }),
         });
 
@@ -225,39 +270,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateProfile = async (updated: Profile) => {
-    const res = await fetch(`/api/profiles/${updated.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to update profile.');
-    }
-
-    const data = await res.json();
-    const saved = data.profile || updated;
-    if (activeProfile && activeProfile.id === saved.id) {
-      setActiveProfile(saved);
-      try {
-        localStorage.setItem('smalltalk_current_profile', JSON.stringify(saved));
-      } catch (_) {}
-    }
-    loadEventData();
-  };
-
-  const resetForm = () => {
-    setName('');
-    setWorkingOn('');
-    setLookingFor('');
-    setAgentTone('cool');
-    setOpenToTalk(true);
-    setError(null);
-    setOnboardingStep('form');
-  };
-
   const handleMingleWithAttendee = (targetId: string) => {
     const myId = activeProfile?.id || (profilesList[0]?.id !== targetId ? profilesList[0]?.id : profilesList[1]?.id);
     setMinglePair({ aId: myId, bId: targetId });
@@ -288,9 +300,17 @@ export default function App() {
             {activeProfile && onboardingStep !== 'form' && (
               <div className="bg-white border border-stone-200/80 rounded-2xl p-4 sm:p-5 shadow-xs flex items-center justify-between gap-3 animate-in fade-in duration-200">
                 <div className="flex items-center gap-3 overflow-hidden min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-stone-900 text-stone-50 flex items-center justify-center font-bold text-sm shrink-0">
-                    {activeProfile.name.charAt(0).toUpperCase()}
-                  </div>
+                  {activeProfile.photo ? (
+                    <img
+                      src={activeProfile.photo}
+                      alt={activeProfile.name}
+                      className="w-10 h-10 rounded-xl object-cover border border-stone-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-stone-900 text-stone-50 flex items-center justify-center font-bold text-sm shrink-0">
+                      {activeProfile.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold text-stone-900 text-sm truncate">
@@ -429,6 +449,24 @@ export default function App() {
                 )}
 
                 <form onSubmit={handleCaptureSubmit} className="space-y-4">
+                  {/* Voice onboarding */}
+                  <div className="space-y-2">
+                    <VoiceInput
+                      onExtracted={(d) => {
+                        if (d.working_on) setWorkingOn(d.working_on);
+                        if (d.looking_for) setLookingFor(d.looking_for);
+                        if (d.name && !name.trim()) setName(d.name);
+                      }}
+                    />
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-px bg-stone-200"></div>
+                      <span className="text-[10px] uppercase font-bold text-stone-400 tracking-wider">
+                        or type it out
+                      </span>
+                      <div className="flex-1 h-px bg-stone-200"></div>
+                    </div>
+                  </div>
+
                   {/* What are you working on ? */}
                   <div>
                     <label
@@ -540,6 +578,14 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Profile Selfie */}
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-2">
+                      Profile Photo
+                    </label>
+                    <SelfieCapture photo={photo} onCapture={setPhoto} />
+                  </div>
+
                   {/* Consent Toggle */}
                   <div className="pt-2 pb-1 border-t border-stone-100">
                     <div className="flex items-center justify-between gap-3">
@@ -644,13 +690,6 @@ export default function App() {
                     <span>Browse Room Directory</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="text-xs text-stone-500 hover:text-stone-800 py-1 transition cursor-pointer"
-                  >
-                    Check in another attendee
-                  </button>
                 </div>
               </section>
             )}
