@@ -1,6 +1,6 @@
 {
   "name": "smalltalk",
-  "description": "Live event networking tool with preference capture and agentic matching preparation.",
+  "description": "Live event networking tool with preference capture and multi-agent mingling negotiation.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
